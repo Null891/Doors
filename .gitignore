@@ -1,0 +1,5 @@
+.DS_Store
+Thumbs.db
+*.rbxlx.lock
+node_modules/
+.vercel

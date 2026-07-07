@@ -1,0 +1,20 @@
+{
+  "name": "DoorsStarterKit",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/Shared" }
+    },
+    "ServerScriptService": {
+      "DoorsServer": { "$path": "src/Server" }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$properties": { "EnableMouseLockOption": true },
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "DoorsClient": { "$path": "src/Client" }
+      }
+    }
+  }
+}
