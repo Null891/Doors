@@ -28,10 +28,11 @@ lock the mouse, and go.
 | System | Details |
 |---|---|
 | Procedural generation | Weighted room templates (hallways, grand halls, 90° turns), 4 rooms kept live at once, overlap-safe re-rolling, Void straggler damage+teleport when a lagging room culls |
+| The Lobby | A broken elevator ("OUT OF ORDER" sign, riveted doors, call button) marks the start — the whole premise the menu subtitle references |
 | Doors & locks | Numbered doors, ~16% locked with a key hidden in the room, lockpicks as a fallback |
-| Hiding | Closets you walk into and hide inside; camp past 9s and a warning fires, past 10.6s you're forced out and hurt |
+| Hiding | Closets you walk into and hide inside; camp past ~4.5s and a warning fires, past ~5.5s you're forced out and hurt, and you can't hide again for ~12.5s after |
 | **Rush** | Every lamp in every loaded room flickers, then a black shape sweeps the whole loaded stretch at 46 u/s, shattering lights as it enters each room, killing anyone not hidden |
-| **Ambush** | Faster, spares the lights, rebounds back and forth 2–5 times — you have to keep re-hiding for every pass |
+| **Ambush** | Faster, spares the lights, rebounds back and forth 2–4 times — you have to keep re-hiding for every pass |
 | **Screech** | Spawns behind you in dark rooms with a "psst" — center it in your view within 2.5s or take a bite |
 | **Eyes** | A purple gaze parked mid-room; looking directly at it ticks damage, looking away is safe |
 | **Halt** | A huge "STOP" warning — any movement or camera turn during the window is a hit |
@@ -40,7 +41,8 @@ lock the mouse, and go.
 | **Figure** | Activates at the library (Door 50) and roams persistently; uncrouched movement and interactions draw it in, contact is fatal, and it can sniff you out of a closet if you move |
 | **The Library (Door 50)** | Read all the books, cross-reference the paper's numeral→shape key, enter the 5-digit code on the padlock |
 | Items & economy | Flashlight (battery drain), Vitamins (speed boost), Crucifix (banishes Rush/Ambush on contact), Lockpicks, gold piles, Jeff's Shop at Door 52 (safe room), gold→knobs conversion on death/escape (20:1, rounds up), knobs persisted via `localStorage` |
-| Audio | 100% synthesized at runtime via Web Audio (oscillators + filtered noise) — no audio files, so sound works immediately with no asset setup |
+| Audio | 100% synthesized at runtime via Web Audio — no audio files. A shared reverb bus for spatial depth, Rush/Ambush crossfade between a muffled "far" layer and a distorted "near" layer as they approach (mirroring the real game's two-recording technique), Ambush's scream uses a Shepard tone (the auditory illusion of endlessly rising pitch), jumpscares layer a sub-bass hit + distorted scream sweep + static + rumble tail, and the ambient drone gets more dissonant in dark/dangerous rooms |
+| Menu | A live, slow-panning 3D shot of the actual lobby (starting on the elevator, then dollying down the hallway) behind a blurred veil, with staggered entrance animations — not a static screen |
 
 ## Deploying to Vercel
 
@@ -58,7 +60,7 @@ directly by the browser (`<script type="module">`, no bundler):
 
 - **`config.js`** — every tuning number (room sizes, entity speeds/damage/chances, economy) in one place
 - **`utils.js`** — RNG helpers and the `Frame {x,z,dir}` coordinate system every room is built in (quarter-turn rotations only, so all geometry stays axis-aligned and collision is cheap AABB math)
-- **`textures.js`** — every material is a `<canvas>`-painted texture baked once at boot; `Mats.*` factories create per-room materials (must be disposed with the room), a handful of `Mats.*` constants are shared forever
+- **`textures.js`** — every material is a `<canvas>`-painted texture baked once at boot; `Mats.*` factories create per-room materials (must be disposed with the room), a handful of `Mats.*` constants are shared forever. Materials are `MeshStandardMaterial` (per-pixel lit) rather than `MeshLambertMaterial` (per-vertex/Gouraud) — on a large unsubdivided box face, Lambert's vertex-only lighting creates a visible hard seam along the diagonal between the face's two triangles wherever a point light sits mid-face. Also worth knowing if you touch lighting: Three.js r155+ defaults to physically-correct falloff (`decay=2`), where intensity is candela-scale — old "intensity: 1-2" values render as near-total darkness. See the tuned values in `rooms.js`'s `LAMP_BASE_INT`, `items.js`'s `FLASH_ON_INTENSITY`, and `main.js`'s scene lights.
 - **`audio.js`** — `Sfx`, a fully synthesized sound engine (oscillators + filtered white noise, no audio files)
 - **`input.js`**, **`player.js`**, **`hud.js`** — pointer-lock FPS controller, collision (cylinder-vs-AABB), and the entire UI (built as DOM, not canvas)
 - **`rooms.js`** — builds one room's geometry from a `Frame` + options; every interactable it creates just forwards to `ctx.game.*` — it has no idea what a lock or gold pile *means*, only how to describe one and report the event

@@ -134,6 +134,7 @@ export class Sweeper {
     this.mesh.position.set(this.travelPos.x, this.travelPos.y, this.travelPos.z);
     this._brokenRooms = new Set();
     this.phase = 'travel';
+    if (this.variant === 'Ambush') Sfx.ambushScream();
   }
 
   _buildPath(ctx, reversed) {
@@ -199,6 +200,11 @@ export class Sweeper {
       }
     }
     this.mesh.position.set(this.travelPos.x, this.travelPos.y, this.travelPos.z);
+
+    if (this.loop && this.loop.setDistance) {
+      const d = dist2d(this.travelPos.x, this.travelPos.z, ctx.player.pos.x, ctx.player.pos.z);
+      this.loop.setDistance(clamp(1 - d / 55, 0, 1));
+    }
 
     if (this.variant === 'Rush') {
       const room = ctx.world.getRoomAt(this.travelPos.x, this.travelPos.y, this.travelPos.z);

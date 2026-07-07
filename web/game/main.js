@@ -37,8 +37,12 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 
-scene.add(new THREE.AmbientLight(0x1c1814, 1.1));
-scene.add(new THREE.HemisphereLight(0x1a1610, 0x0a0806, 0.35));
+// Three.js r155+ defaults to physically-correct light falloff (decay=2,
+// candela-scale intensity) — old-style intensity values like 1-2 that used
+// to look fine now render as almost total darkness. These are tuned
+// empirically against real screenshots, not the old convention.
+scene.add(new THREE.AmbientLight(0x2a241c, 3.2));
+scene.add(new THREE.HemisphereLight(0x2a2418, 0x0a0806, 1.6));
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -123,6 +127,8 @@ function clearClosetTimers(closet) {
   if (t) { clearTimeout(t.warn); clearTimeout(t.force); closetTimers.delete(closet); }
 }
 
+let rehideBlockedUntil = 0;
+
 function exitCloset(closet, forced) {
   clearClosetTimers(closet);
   closet.occupied = false;
@@ -140,6 +146,7 @@ function exitCloset(closet, forced) {
     player.damage(CFG.hide.damage);
     hud.toast('Something forced you out!', '#c33');
     shake(1);
+    rehideBlockedUntil = performance.now() / 1000 + CFG.hide.rehideCooldown;
     if (player.health <= 0) killPlayer('Hide');
   }
 }
@@ -173,6 +180,8 @@ function toggleHide(closet) {
     exitCloset(closet, false);
   } else if (closet.occupied) {
     hud.toast('Occupied.', '#c33');
+  } else if (performance.now() / 1000 < rehideBlockedUntil) {
+    hud.toast("You can't hide again yet...", '#c33');
   } else if (!player.hiddenIn) {
     enterCloset(closet);
   }
@@ -306,6 +315,7 @@ function yawTowards(from, to) {
 function startRun() {
   gameState = 'playing';
   won = false;
+  rehideBlockedUntil = 0;
   for (const t of closetTimers.values()) { clearTimeout(t.warn); clearTimeout(t.force); }
   closetTimers.clear();
   inventory.resetRun();
@@ -341,6 +351,7 @@ hud.on.quitToMenu = () => {
   hud.hideScreens();
   hud.setGameplayVisible(false);
   Input.exitLock();
+  world.reset(); // fresh lobby so the menu's live background is consistent, not wherever the run ended
   hud.showMenu({ knobs: inventory.knobs, best: inventory.bestDoor });
 };
 hud.on.resume = () => {
@@ -351,8 +362,40 @@ hud.onModalClose = () => {
 };
 hud.onPadClick = () => Sfx.padClick();
 
+// The menu shows a live, slow-drifting shot of the actual lobby behind a
+// blurred veil — built from the same World the real game uses, so it's
+// never out of sync with what the game actually looks like.
+world.reset();
 hud.setGameplayVisible(false);
 hud.showMenu({ knobs: inventory.knobs, best: inventory.bestDoor });
+
+// Two-phase loop: open looking back at the broken elevator (the whole
+// premise of the game), then slowly dolly forward down the hallway toward
+// the first door. Both phases read the actual lobby geometry, so this never
+// drifts out of sync with what the game really looks like.
+let menuT = 0;
+function updateMenuCamera(dt) {
+  menuT += dt;
+  const lobby = world.getActiveRooms()[0];
+  if (!lobby) return;
+
+  const cycle = 17;
+  const t = menuT % cycle;
+  camera.rotation.order = 'YXZ';
+  camera.rotation.z = 0;
+
+  if (t < 5.5) {
+    const p = t / 5.5;
+    camera.position.set(Math.sin(menuT * 0.1) * 1.6, 3.6, 11 - p * 2);
+    camera.rotation.y = Math.sin(menuT * 0.06) * 0.14;
+    camera.rotation.x = 0.16 + Math.sin(menuT * 0.05) * 0.015;
+  } else {
+    const p = (t - 5.5) / (cycle - 5.5);
+    camera.position.set(Math.sin(menuT * 0.11) * 3.2, 4.5, 6 + p * 25);
+    camera.rotation.y = Math.PI + Math.sin(menuT * 0.07) * 0.2;
+    camera.rotation.x = Math.sin(menuT * 0.05) * 0.025 - 0.02;
+  }
+}
 
 Input.onLockChange = (locked) => {
   if (!locked && gameState === 'playing' && !hud.modalOpen) {
@@ -403,7 +446,7 @@ if (DEBUG) {
     if (e.code === 'Digit6') { inventory.addGold(500); hud.toast('+500 debug gold'); }
   });
   window.__doors = {
-    world, player, director, inventory, camera, scene,
+    world, player, director, inventory, camera, scene, renderer,
     get state() { return gameState; },
     get interactable() { return currentInteractable; },
   };
@@ -417,6 +460,11 @@ const clock = new THREE.Clock();
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.1);
+
+  if (gameState === 'menu') {
+    world.update(dt); // keep lamp/prop animations alive behind the menu
+    updateMenuCamera(dt);
+  }
 
   if (gameState === 'playing') {
     ctx.dt = dt;
@@ -457,7 +505,9 @@ function frame() {
 
     const curRoom = world.getRoomAt(player.pos.x, player.pos.y, player.pos.z);
     updateObjective(curRoom);
-    scene.fog.far = damp(scene.fog.far, curRoom && curRoom.dark ? CFG.fogDark : CFG.fogNormal, 2, dt);
+    const inDanger = curRoom && curRoom.dark && !curRoom.isShop && !curRoom.isElevator;
+    scene.fog.far = damp(scene.fog.far, inDanger ? CFG.fogDark : CFG.fogNormal, 2, dt);
+    ambienceHandle?.setTension?.(inDanger || director.sweeper.active ? 1 : 0);
 
     hud.setGold(inventory.gold);
     hud.setKnobs(inventory.knobs);

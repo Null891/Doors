@@ -4,7 +4,7 @@
 
 import * as THREE from '../../vendor/three.module.min.js';
 import { CFG } from '../config.js';
-import { chance, choice, toWorld, fwdOf } from '../utils.js';
+import { chance, choice, toWorld, fwdOf, rightOf } from '../utils.js';
 import { Mats } from '../textures.js';
 import { Sfx } from '../audio.js';
 
@@ -36,13 +36,18 @@ export function maybeAddDupeDoor(room) {
   doorMesh.rotation.y = yaw;
   room.group.add(doorMesh);
 
+  // Side-wall mounted, so the plate needs to face INWARD (toward the room
+  // center) not "forward" — a flat plane only reads correctly from the
+  // side its front normal points to (see rooms.js's exit-door plate fix).
   let fakeNumber = room.number + 1 + choice([-8, -7, -6, -5, 5, 6, 7, 8]);
   fakeNumber = Math.max(1, fakeNumber);
+  const right = rightOf(frame);
+  const plateYaw = Math.atan2(-side * right[0], -side * right[1]);
   const plateGeo = new THREE.PlaneGeometry(1.6, 0.8);
   const plateMat = Mats.numberPlate(fakeNumber);
   const plate = new THREE.Mesh(plateGeo, plateMat);
-  plate.position.set(p.x + side * 0.42, gh * 0.62, p.z);
-  plate.rotation.y = yaw;
+  plate.position.set(p.x - side * 0.42, gh * 0.62, p.z);
+  plate.rotation.y = plateYaw;
   room.group.add(plate);
 
   let used = false;

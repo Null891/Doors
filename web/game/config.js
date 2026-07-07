@@ -39,10 +39,13 @@ export const CFG = {
   },
 
   // ---- hiding / Hide entity --------------------------------------
+  // Real DOORS forces you out of a closet within ~5-6s and blocks re-hiding
+  // for ~12.5s after — camping a closet isn't a real strategy there either.
   hide: {
-    maxTime: 9,
-    grace: 1.6,
+    maxTime: 4.5,
+    grace: 1.0,
     damage: 10,
+    rehideCooldown: 12.5,
   },
 
   // ---- entities --------------------------------------------------
@@ -65,7 +68,7 @@ export const CFG = {
     killDist: 6.5,
     damage: 125,
     reboundsMin: 2,
-    reboundsMax: 5,
+    reboundsMax: 4,
     pauseMin: 1.0,
     pauseMax: 2.2,
   },

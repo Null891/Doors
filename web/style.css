@@ -172,6 +172,7 @@ html, body {
   pointer-events: auto;
   text-align: center;
   padding: 2rem;
+  transition: background 0.6s ease;
 }
 .screen.visible { display: flex; }
 .screen h1 {
@@ -197,15 +198,129 @@ html, body {
   border-radius: 4px;
   padding: 0.7em 2.4em;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease,
+              transform 0.25s cubic-bezier(0.2, 0.8, 0.3, 1.4), box-shadow 0.25s ease;
 }
-.btn:hover { background: rgba(60,48,34,0.95); border-color: var(--gold); color: #fff; }
-.btn.primary { border-color: var(--gold); font-size: 1.4rem; }
+.btn:hover {
+  background: rgba(60,48,34,0.95); border-color: var(--gold); color: #fff;
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 6px 24px rgba(212,175,55,0.18);
+}
+.btn:active { transform: translateY(0) scale(0.98); }
+.btn.primary {
+  border-color: var(--gold); font-size: 1.4rem; letter-spacing: 0.18em;
+  box-shadow: 0 0 0 rgba(212,175,55,0);
+}
+.btn.primary:hover { animation: none; box-shadow: 0 8px 32px rgba(212,175,55,0.28); }
+/* .btn.primary's own `animation` would otherwise win over .reveal-play's
+   by specificity (2 classes vs 1) and silently override it — CSS
+   `animation` shorthand doesn't merge across rules, so the button would
+   stay stuck at .reveal's opacity:0 forever. Combine both into one rule
+   instead, with the glow delayed until after the reveal finishes
+   (matches this button's nth-child(5) stagger delay + reveal duration). */
+.btn.primary.reveal-play {
+  animation: reveal-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+              primary-idle-glow 3.2s ease-in-out 1.46s infinite;
+}
+@keyframes primary-idle-glow {
+  0%, 100% { box-shadow: 0 0 14px rgba(212,175,55,0.06); }
+  50% { box-shadow: 0 0 22px rgba(212,175,55,0.22); }
+}
 
 .controls-hint {
   color: var(--parchment-dim); font-size: 0.95rem; line-height: 1.9;
+  max-width: 46em;
 }
 .controls-hint b { color: var(--parchment); }
+
+/* ---- main menu: live 3D lobby renders behind, this is the veil + card ---- */
+#menu-backdrop {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 70% 60% at 50% 42%, rgba(8,6,5,0.35) 0%, rgba(4,3,3,0.82) 68%, rgba(2,2,3,0.94) 100%);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.1s ease;
+  z-index: 1;
+}
+#menu-backdrop.visible { opacity: 1; }
+
+.menu-screen {
+  background: transparent !important;
+  z-index: 2;
+}
+.menu-content {
+  display: flex; flex-direction: column; align-items: center; gap: 1.1rem;
+  max-width: 50em;
+}
+.menu-eyebrow {
+  color: var(--gold); font-size: 0.8rem; letter-spacing: 0.5em;
+  opacity: 0.75; text-transform: uppercase;
+}
+.menu-title {
+  color: var(--parchment);
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
+  letter-spacing: 0.22em; font-weight: normal;
+  text-shadow: 0 0 40px rgba(215,195,160,0.3), 0 2px 4px #000;
+  animation: title-flicker 7s ease-in-out infinite;
+}
+@keyframes title-flicker {
+  0%, 92%, 100% { opacity: 1; text-shadow: 0 0 40px rgba(215,195,160,0.3), 0 2px 4px #000; }
+  93% { opacity: 0.75; text-shadow: 0 0 10px rgba(215,195,160,0.1), 0 2px 4px #000; }
+  94% { opacity: 1; }
+  95% { opacity: 0.6; text-shadow: 0 0 6px rgba(215,195,160,0.08), 0 2px 4px #000; }
+  96% { opacity: 1; text-shadow: 0 0 40px rgba(215,195,160,0.3), 0 2px 4px #000; }
+}
+
+/* staggered entrance: each .reveal child fades + rises in, in DOM order */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.reveal-play {
+  animation: reveal-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.menu-content .reveal-play:nth-child(1) { animation-delay: 0.05s; }
+.menu-content .reveal-play:nth-child(2) { animation-delay: 0.18s; }
+.menu-content .reveal-play:nth-child(3) { animation-delay: 0.32s; }
+.menu-content .reveal-play:nth-child(4) { animation-delay: 0.44s; }
+.menu-content .reveal-play:nth-child(5) { animation-delay: 0.56s; }
+.menu-content .reveal-play:nth-child(6) { animation-delay: 0.68s; }
+.menu-content .reveal-play:nth-child(7) { animation-delay: 0.8s; }
+@keyframes reveal-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slider-row {
+  display: flex; gap: 2.4rem; pointer-events: auto;
+}
+.slider-group {
+  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+}
+.slider-group label {
+  color: var(--parchment-dim); font-size: 0.85rem; letter-spacing: 0.1em;
+}
+.slider-group input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 12rem; height: 3px;
+  background: rgba(215,195,160,0.25);
+  border-radius: 2px; outline: none;
+  cursor: pointer;
+}
+.slider-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 8px rgba(212,175,55,0.6);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.slider-group input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+.slider-group input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%; border: none;
+  background: var(--gold); box-shadow: 0 0 8px rgba(212,175,55,0.6); cursor: pointer;
+}
 
 /* ---- padlock modal ---- */
 #padlock {

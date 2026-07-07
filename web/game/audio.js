@@ -29,6 +29,79 @@ class SfxEngine {
     this._noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this._noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+
+    // shared hallway-reverb send: a synthesized impulse response (decaying
+    // filtered noise) rather than a sampled IR file, so wet sounds have
+    // spatial depth without needing an audio asset.
+    this.reverb = this.ctx.createConvolver();
+    this.reverb.buffer = this._makeImpulse(2.4, 3.2);
+    this.reverbGain = this.ctx.createGain();
+    this.reverbGain.gain.value = 0.4;
+    this.reverb.connect(this.reverbGain).connect(this.master);
+  }
+
+  _makeImpulse(duration, decay) {
+    const rate = this.ctx.sampleRate;
+    const length = Math.floor(rate * duration);
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      }
+    }
+    return impulse;
+  }
+
+  // sends a fraction of `node`'s signal into the shared reverb bus
+  _sendReverb(node, amount = 0.35) {
+    if (!this.reverb) return;
+    const g = this.ctx.createGain();
+    g.gain.value = amount;
+    node.connect(g).connect(this.reverb);
+  }
+
+  // a WaveShaper curve for distortion/growl effects
+  _distortionCurve(amount = 30) {
+    const n = 4096;
+    const curve = new Float32Array(n);
+    const k = amount;
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+  }
+
+  // Shepard tone: several sine layers an octave apart, all rising together,
+  // each gain-windowed around a "sweet spot" frequency so the ones fading
+  // out (too high) are covered by ones fading in (too low) — the classic
+  // illusion of a pitch that rises forever. Used for Ambush's scream.
+  _shepardRise({ t0 = null, dur = 1.3, out = null, gainMul = 1, sweet = 660, octaves = 2.2 } = {}) {
+    if (!this.ctx) return;
+    const t = t0 ?? this.now;
+    const bases = [55, 110, 220, 440, 880, 1760, 3520];
+    const sweetLog = Math.log2(sweet);
+    const sigma = 1.15;
+    const steps = 28;
+    for (const f0 of bases) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      const g = this.ctx.createGain();
+      o.connect(g).connect(out || this.master);
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * Math.pow(2, octaves), t + dur);
+      const curve = new Float32Array(steps);
+      for (let i = 0; i < steps; i++) {
+        const frac = i / (steps - 1);
+        const freq = f0 * Math.pow(2, octaves * frac);
+        const x = (Math.log2(freq) - sweetLog) / sigma;
+        curve[i] = Math.max(0.0001, Math.exp(-x * x / 2) * gainMul);
+      }
+      g.gain.setValueCurveAtTime(curve, t, dur);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
   }
 
   resume() { this.ctx?.resume?.(); }
@@ -97,6 +170,10 @@ class SfxEngine {
     };
   }
 
+  // The background "soundtrack" — a quiet detuned drone plus airy wind
+  // noise, always present. `setTension(level)` fades in a second, more
+  // dissonant drone layer (a minor-second interval against the base) so
+  // dark/dangerous rooms read as more unsettling without a hard cut.
   ambience() {
     if (!this.ctx) return null;
     const g = this.ctx.createGain();
@@ -115,8 +192,22 @@ class SfxEngine {
     const lfoG = this.ctx.createGain(); lfoG.gain.value = 0.1;
     lfo.connect(lfoG).connect(wg.gain);
     wind.connect(wf).connect(wg).connect(g);
-    o1.start(); o2.start(); wind.start(); lfo.start();
-    return this._loopHandle([o1, o2, wind, lfo], g);
+
+    // tension layer: dissonant, fades in via setTension()
+    const tensionG = this.ctx.createGain();
+    tensionG.gain.value = 0;
+    tensionG.connect(g);
+    const t1 = this.ctx.createOscillator(); t1.type = 'sine'; t1.frequency.value = 61.5;
+    const t2 = this.ctx.createOscillator(); t2.type = 'sine'; t2.frequency.value = 65.2;
+    t1.connect(tensionG); t2.connect(tensionG);
+
+    o1.start(); o2.start(); wind.start(); lfo.start(); t1.start(); t2.start();
+    const handle = this._loopHandle([o1, o2, wind, lfo, t1, t2], g);
+    handle.setTension = (level) => {
+      if (!this.ctx) return;
+      tensionG.gain.setTargetAtTime(clamp(level, 0, 1) * 0.11, this.now, 1.6);
+    };
+    return handle;
   }
 
   heartbeatLoop() {
@@ -134,27 +225,74 @@ class SfxEngine {
     return this._loopHandle([], g, timer);
   }
 
+  // Rush/Ambush's roar: TWO layers, like the real game's separately-recorded
+  // far/near audio — a muffled, heavily-lowpassed distant rumble that's
+  // always present at some level, and a bright, distorted, aggressive layer
+  // that fades in as the entity gets close. `setDistance(t)` (0=far, 1=on
+  // top of you) crossfades between them; `setVol(v)` is the overall
+  // envelope (used for the warning fade-in), independent of that balance.
   rushLoop() {
     if (!this.ctx) return null;
-    const g = this.ctx.createGain();
-    g.gain.value = 0;
-    g.connect(this.master);
-    // roaring filtered noise
-    const src = this.ctx.createBufferSource();
-    src.buffer = this._noise; src.loop = true; src.playbackRate.value = 0.7;
-    const f = this.ctx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = 240; f.Q.value = 1.2;
-    const tremG = this.ctx.createGain(); tremG.gain.value = 1;
-    const lfo = this.ctx.createOscillator(); lfo.frequency.value = 11;
-    const lfoG = this.ctx.createGain(); lfoG.gain.value = 0.5;
-    lfo.connect(lfoG).connect(tremG.gain);
-    src.connect(f).connect(tremG).connect(g);
-    // angry sub
-    const sub = this.ctx.createOscillator(); sub.type = 'sawtooth'; sub.frequency.value = 39;
-    const subG = this.ctx.createGain(); subG.gain.value = 0.4;
-    sub.connect(subG).connect(g);
-    src.start(); lfo.start(); sub.start();
-    return this._loopHandle([src, lfo, sub], g);
+    const outG = this.ctx.createGain();
+    outG.gain.value = 0;
+
+    const tremolo = this.ctx.createGain();
+    tremolo.gain.value = 1;
+    outG.connect(tremolo).connect(this.master);
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 12;
+    const lfoG = this.ctx.createGain();
+    lfoG.gain.value = 0.32;
+    lfo.connect(lfoG).connect(tremolo.gain);
+
+    // FAR layer: muffled, distant, always at least a little present
+    const farG = this.ctx.createGain();
+    farG.gain.value = 1;
+    farG.connect(outG);
+    const farSrc = this.ctx.createBufferSource();
+    farSrc.buffer = this._noise; farSrc.loop = true; farSrc.playbackRate.value = 0.55;
+    const farF = this.ctx.createBiquadFilter();
+    farF.type = 'lowpass'; farF.frequency.value = 140; farF.Q.value = 1;
+    farSrc.connect(farF).connect(farG);
+    const farSub = this.ctx.createOscillator();
+    farSub.type = 'sine'; farSub.frequency.value = 34;
+    const farSubG = this.ctx.createGain();
+    farSubG.gain.value = 0.5;
+    farSub.connect(farSubG).connect(farG);
+
+    // NEAR layer: bright, present, distorted — fades in as it closes in
+    const nearG = this.ctx.createGain();
+    nearG.gain.value = 0;
+    const nearWS = this.ctx.createWaveShaper();
+    nearWS.curve = this._distortionCurve(28);
+    nearWS.oversample = '2x';
+    nearWS.connect(nearG).connect(outG);
+    const nearSrc = this.ctx.createBufferSource();
+    nearSrc.buffer = this._noise; nearSrc.loop = true; nearSrc.playbackRate.value = 0.85;
+    const nearF = this.ctx.createBiquadFilter();
+    nearF.type = 'bandpass'; nearF.frequency.value = 480; nearF.Q.value = 0.8;
+    nearSrc.connect(nearF).connect(nearWS);
+    const nearSaw = this.ctx.createOscillator();
+    nearSaw.type = 'sawtooth'; nearSaw.frequency.value = 46;
+    const nearSawG = this.ctx.createGain();
+    nearSawG.gain.value = 0.45;
+    nearSaw.connect(nearSawG).connect(nearWS);
+
+    farSrc.start(); farSub.start(); nearSrc.start(); nearSaw.start(); lfo.start();
+    const nodes = [farSrc, farSub, nearSrc, nearSaw, lfo];
+
+    return {
+      setVol: (v) => { outG.gain.value = v; },
+      setDistance: (t) => {
+        const tt = clamp(t, 0, 1);
+        farG.gain.value = 1 - tt * 0.55;
+        nearG.gain.value = tt;
+      },
+      stop: () => {
+        for (const n of nodes) { try { n.stop(); } catch (_) { /* already stopped */ } }
+        setTimeout(() => outG.disconnect(), 60);
+      },
+    };
   }
 
   eyesLoop() {
@@ -276,11 +414,46 @@ class SfxEngine {
     this._noiseBurst({ dur: 0.18, gain: 0.4, freq: 700, freqEnd: 180 });
   }
 
+  // The jumpscare hit: a sub-bass thump, a distorted downward scream sweep,
+  // a bright noise impact, static, and a low rumbling tail — layered the
+  // way the real game's scares combine a scream with static/pitch-bent
+  // audio rather than a single clean sound.
   sting() {
+    if (!this.ctx) return;
     const t = this.now;
+    // sub-bass thump
+    this._osc({ type: 'sine', freq: 58, freqEnd: 26, t0: t, dur: 0.55, gain: 0.55, attack: 0.004 });
+    // bright impact
+    this._noiseBurst({ t0: t, dur: 0.3, gain: 0.5, freq: 2200, freqEnd: 250, type: 'lowpass' });
+    // distorted downward scream sweep
+    const scream = this.ctx.createOscillator();
+    scream.type = 'sawtooth';
+    scream.frequency.setValueAtTime(1500, t);
+    scream.frequency.exponentialRampToValueAtTime(170, t + 0.85);
+    const screamGain = this.ctx.createGain();
+    screamGain.gain.setValueAtTime(0.0001, t);
+    screamGain.gain.exponentialRampToValueAtTime(0.34, t + 0.02);
+    screamGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    const ws = this.ctx.createWaveShaper();
+    ws.curve = this._distortionCurve(38);
+    ws.oversample = '4x';
+    scream.connect(ws).connect(screamGain).connect(this.master);
+    this._sendReverb(screamGain, 0.3);
+    scream.start(t);
+    scream.stop(t + 1);
+    // static layered underneath
+    this._noiseBurst({ t0: t + 0.04, dur: 0.55, gain: 0.16, type: 'highpass', freq: 4200 });
+    // low rumbling tail
     [108, 114, 216, 322].forEach((f) =>
-      this._osc({ type: 'sawtooth', freq: f, t0: t, dur: 1.1, gain: 0.16, attack: 0.01 }));
-    this._noiseBurst({ t0: t, dur: 0.9, gain: 0.3, freq: 500, freqEnd: 3000, type: 'bandpass', q: 0.7 });
+      this._osc({ type: 'sawtooth', freq: f, t0: t, dur: 1.15, gain: 0.14, attack: 0.015 }));
+  }
+
+  // Ambush's scream: a Shepard tone (illusion of endlessly rising pitch),
+  // matching the real game's use of a similarly disorienting effect.
+  ambushScream() {
+    const t = this.now;
+    this._shepardRise({ t0: t, dur: 1.6, gainMul: 0.22, sweet: 700 });
+    this._noiseBurst({ t0: t, dur: 1.4, gain: 0.12, type: 'bandpass', freq: 1800, q: 0.6 });
   }
 
   whoosh(vol = 1) {

@@ -19,7 +19,9 @@ import { rand, randInt, chance, choice, damp, toWorld, fwdOf, rightOf, frameAt }
 const WALL_T = 1;       // wall thickness
 const BACK_EXT = 1.5;   // how far floor/walls extend behind local z=0 to bridge the seam to the previous room
 const GAP = 1.0;        // world.js chains next room's entry this far past this room's exit
-const LAMP_BASE_INT = 1.6;
+// Physically-correct light falloff (Three.js r155+ default, decay=2) needs
+// candela-scale intensity, not the old ~1-2 convention — tuned empirically.
+const LAMP_BASE_INT = 480;
 const OPEN_ANGLE = -1.95; // ~112°, doors swing "inward/away"
 const CLOSET_OPEN_ANGLE = -2.05;
 
@@ -177,7 +179,7 @@ function makeLamp(b, group, frame, localX, localZ, H, dark) {
   mesh.position.set(p.x, y, p.z);
   b.geos.push(geo);
   group.add(mesh);
-  const light = new THREE.PointLight(0xffd6a0, dark ? 0 : LAMP_BASE_INT, 26, 2);
+  const light = new THREE.PointLight(0xffd6a0, dark ? 0 : LAMP_BASE_INT, 34, 1.4);
   light.castShadow = false;
   light.position.set(p.x, y - 0.3, p.z);
   group.add(light);
@@ -230,10 +232,15 @@ function buildExitDoor(b, group, frame, number, locked, doorLocalX, doorLocalZ, 
   b.geos.push(doorGeo);
   b.trackMat(doorMesh.material);
 
+  // A plane's front face only reads correctly from the side its normal
+  // points toward. Offset -Z (toward the room this door was BUILT in, where
+  // an approaching player actually is) and rotate 180° so the un-rotated
+  // default (+Z-facing) front face points back at them, not away.
   const plateGeo = new THREE.PlaneGeometry(1.6, 0.8);
   const plateMat = Mats.numberPlate(number);
   const plate = new THREE.Mesh(plateGeo, plateMat);
-  plate.position.set(hingeSign * (gw - 0.4) / 2, gh * 0.62, 0.27);
+  plate.position.set(hingeSign * (gw - 0.4) / 2, gh * 0.62, -0.32);
+  plate.rotation.y = Math.PI;
   pivot.add(plate);
   b.geos.push(plateGeo);
   b.trackMat(plateMat);
@@ -242,7 +249,7 @@ function buildExitDoor(b, group, frame, number, locked, doorLocalX, doorLocalZ, 
   if (locked) {
     const pGeo = new THREE.BoxGeometry(0.7, 0.9, 0.4);
     padlockMesh = new THREE.Mesh(pGeo, Mats.gold);
-    padlockMesh.position.set(hingeSign * (gw - 1.4), gh * 0.32, 0.3);
+    padlockMesh.position.set(hingeSign * (gw - 1.4), gh * 0.32, -0.35);
     pivot.add(padlockMesh);
     b.geos.push(pGeo);
   }
@@ -541,6 +548,46 @@ export function buildRoom(frame, opts) {
       getLabel: () => 'Pull Lever',
       interact: (ctx) => ctx.game.pullLever(),
     });
+  }
+
+  // ---- lobby: a broken elevator marks the starting point (the whole
+  // premise — "the elevator is broken, the only way out is through") ----
+  if (isLobby) {
+    const elevZ = -0.85;
+    const frameMat = Mats.metal(1, 1);
+    b.trackMat(frameMat);
+    const doorMat = Mats.metal(0.6, 2.4);
+    b.trackMat(doorMat);
+
+    b.box(0, elevZ, 9, 0.6, H / 2, H, frameMat); // alcove frame, spans the back
+    b.box(-2.05, elevZ + 0.2, 3.9, 0.3, 4.5, 9, doorMat); // left door leaf
+    b.box(2.05, elevZ + 0.2, 3.9, 0.3, 4.5, 9, doorMat); // right door leaf
+    b.box(0, elevZ + 0.2, 0.15, 0.15, 4.5, 9.2, Mats.blackMatte); // seam shadow between doors
+
+    const signMat = Mats.sign('OUT OF ORDER', '#c33');
+    b.trackMat(signMat);
+    const signGeo = new THREE.PlaneGeometry(3.2, 0.9);
+    const signP = toWorld(frame, 0, elevZ + 0.4);
+    const sign = new THREE.Mesh(signGeo, signMat);
+    sign.position.set(signP.x, 9.6, signP.z);
+    sign.rotation.y = meshYaw(frame);
+    b.geos.push(signGeo);
+    group.add(sign);
+
+    const btnP = toWorld(frame, 5.2, elevZ + 0.3);
+    const btnGeo = new THREE.BoxGeometry(0.6, 1.4, 0.3);
+    const btnMesh = new THREE.Mesh(btnGeo, Mats.blackMatte);
+    btnMesh.position.set(btnP.x, 4.6, btnP.z);
+    btnMesh.rotation.y = meshYaw(frame);
+    b.geos.push(btnGeo);
+    group.add(btnMesh);
+    const btnLightGeo = new THREE.SphereGeometry(0.12, 8, 6);
+    const btnLight = new THREE.Mesh(btnLightGeo, new THREE.MeshBasicMaterial({ color: 0xff3020 }));
+    b.trackMat(btnLight.material);
+    const btnLightP = toWorld(frame, 5.2, elevZ + 0.42);
+    btnLight.position.set(btnLightP.x, 4.9, btnLightP.z);
+    b.geos.push(btnLightGeo);
+    group.add(btnLight);
   }
 
   // ---- library ----

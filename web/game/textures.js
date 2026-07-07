@@ -271,12 +271,18 @@ export function initMaterials() {
   C.shelf = drawShelf();
   C.paper = drawPaper();
 
-  const lam = (opts) => new THREE.MeshLambertMaterial(opts);
+  // MeshLambertMaterial shades per-VERTEX (Gouraud) — on a large unsubdivided
+  // box face (just 2 triangles), a point light positioned mid-face creates a
+  // hard, visible seam along the diagonal between those triangles, since
+  // only the 4 corners are actually lit and the rest is linearly
+  // interpolated. MeshStandardMaterial shades per-pixel, which eliminates
+  // that seam entirely regardless of how coarse the geometry is.
+  const lam = (opts) => new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0.04, ...opts });
 
   Mats = {
     // shared, never disposed
-    gold: lam({ color: 0xd4af37, emissive: 0x332200 }),
-    brass: lam({ color: 0x8a713a }),
+    gold: lam({ color: 0xd4af37, emissive: 0x332200, roughness: 0.4, metalness: 0.5 }),
+    brass: lam({ color: 0x8a713a, roughness: 0.45, metalness: 0.45 }),
     blackMatte: lam({ color: 0x0b0b0e }),
     bulbOn: new THREE.MeshBasicMaterial({ color: 0xffe0b0 }),
     bulbOff: lam({ color: 0x555049 }),
@@ -286,7 +292,7 @@ export function initMaterials() {
     white: lam({ color: 0xcccccc }),
     frame: lam({ color: 0x241811 }),
     darkWood: lam({ color: 0x2e2018 }),
-    keyGold: lam({ color: 0xe8c34a, emissive: 0x604810 }),
+    keyGold: lam({ color: 0xe8c34a, emissive: 0x604810, roughness: 0.4, metalness: 0.5 }),
     paperMat: lam({ map: texFrom(C.paper) }),
 
     // factories: caller owns disposal (push into room.disposables)
@@ -297,7 +303,7 @@ export function initMaterials() {
     ceiling: (rx, ry) => lam({ map: texFrom(C.ceiling, rx, ry) }),
     carpet: (rx, ry) => lam({ map: texFrom(C.carpet, rx, ry) }),
     door: () => lam({ map: texFrom(C.door) }),
-    metal: (rx, ry) => lam({ map: texFrom(C.metal, rx, ry) }),
+    metal: (rx, ry) => lam({ map: texFrom(C.metal, rx, ry), roughness: 0.55, metalness: 0.45 }),
     brick: (rx, ry) => lam({ map: texFrom(C.brick, rx, ry) }),
     shelf: (rx, ry) => lam({ map: texFrom(C.shelf, rx, ry) }),
     painting: () => lam({ map: texFrom(drawPainting()) }),

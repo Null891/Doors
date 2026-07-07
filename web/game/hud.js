@@ -62,6 +62,10 @@ export class Hud {
     this.scareCanvas.height = 512;
     this.fadeEl = el('div', { id: 'fade', cls: 'fullscreen' }, r);
 
+    // sits between the live 3D menu background and the menu text — a
+    // blur+gradient veil so the scene reads as mood, not visual noise
+    this.menuBackdrop = el('div', { id: 'menu-backdrop' }, r);
+
     this._buildScreens();
     this._buildPadlock();
     this._buildPaper();
@@ -71,29 +75,37 @@ export class Hud {
   _buildScreens() {
     const r = this.root;
 
-    // MENU
-    this.menuEl = el('div', { cls: 'screen', id: 'menu-screen' }, r);
-    el('h1', { text: 'A HUNDRED DOORS' }, this.menuEl);
-    el('div', { cls: 'sub', text: 'The elevator is broken. The only way out is through.' }, this.menuEl);
-    this.menuStats = el('div', { cls: 'stats' }, this.menuEl);
-    const playBtn = el('button', { cls: 'btn primary', text: 'ENTER THE HOTEL' }, this.menuEl);
+    // MENU — the live 3D lobby renders behind this; #menu-backdrop (a blur
+    // + gradient scrim) sits between the canvas and this content so the
+    // scene reads as atmosphere, not noise, without main.js needing to
+    // know anything about how the menu is styled.
+    this.menuEl = el('div', { cls: 'screen menu-screen', id: 'menu-screen' }, r);
+    const menuContent = el('div', { cls: 'menu-content' }, this.menuEl);
+
+    el('div', { cls: 'menu-eyebrow reveal', text: 'A HORROR EXPERIENCE' }, menuContent);
+    el('h1', { cls: 'menu-title reveal', text: 'A HUNDRED DOORS' }, menuContent);
+    el('div', { cls: 'sub reveal', text: 'The elevator is broken. The only way out is through.' }, menuContent);
+    this.menuStats = el('div', { cls: 'stats reveal' }, menuContent);
+    const playBtn = el('button', { cls: 'btn primary reveal', text: 'ENTER THE HOTEL' }, menuContent);
     playBtn.addEventListener('click', () => this.on.play?.());
+
     el('div', {
-      cls: 'controls-hint',
+      cls: 'controls-hint reveal',
       html: '<b>WASD</b> move &nbsp;·&nbsp; <b>Mouse</b> look &nbsp;·&nbsp; <b>E</b> interact &nbsp;·&nbsp; ' +
             '<b>C / Ctrl</b> crouch &nbsp;·&nbsp; <b>1–5</b> items &nbsp;·&nbsp; <b>F</b> / click — use item &nbsp;·&nbsp; <b>Esc</b> pause' +
             '<br>When the lights flicker — <b>hide</b>. In darkness, when something whispers — <b>look at it</b>. ' +
             'If something watches from the middle of a room — <b>don\'t look</b>.',
-    }, this.menuEl);
+    }, menuContent);
+
     // sliders
-    const sliders = el('div', { cls: 'controls-hint' }, this.menuEl);
-    sliders.style.pointerEvents = 'auto';
-    const volLabel = el('label', { html: 'Volume ' }, sliders);
-    this.volSlider = el('input', {}, volLabel);
+    const sliders = el('div', { cls: 'slider-row reveal' }, menuContent);
+    const volGroup = el('div', { cls: 'slider-group' }, sliders);
+    el('label', { text: 'Volume' }, volGroup);
+    this.volSlider = el('input', {}, volGroup);
     Object.assign(this.volSlider, { type: 'range', min: 0, max: 100, value: 80 });
-    el('span', { html: ' &nbsp;&nbsp; ' }, sliders);
-    const sensLabel = el('label', { html: 'Sensitivity ' }, sliders);
-    this.sensSlider = el('input', {}, sensLabel);
+    const sensGroup = el('div', { cls: 'slider-group' }, sliders);
+    el('label', { text: 'Sensitivity' }, sensGroup);
+    this.sensSlider = el('input', {}, sensGroup);
     Object.assign(this.sensSlider, { type: 'range', min: 20, max: 200, value: 100 });
 
     // DEATH
@@ -357,6 +369,7 @@ export class Hud {
     for (const s of [this.menuEl, this.deathEl, this.winEl, this.pauseEl]) {
       s.classList.remove('visible');
     }
+    this.menuBackdrop.classList.remove('visible');
   }
   hideScreens() { this._hideAllScreens(); }
 
@@ -365,6 +378,13 @@ export class Hud {
     this.menuStats.textContent =
       `Knobs: ${knobs}` + (best > 0 ? `   ·   Deepest run: Door ${best}` : '');
     this.menuEl.classList.add('visible');
+    this.menuBackdrop.classList.add('visible');
+    // replay the entrance animation every time the menu reopens (e.g. after
+    // a death/win, not just on first load)
+    const reveals = this.menuEl.querySelectorAll('.reveal');
+    reveals.forEach((elm) => elm.classList.remove('reveal-play'));
+    void this.menuEl.offsetWidth; // force reflow so the removed class registers before re-adding
+    reveals.forEach((elm) => elm.classList.add('reveal-play'));
   }
 
   showDeath({ killer, tip, knobs, door }) {

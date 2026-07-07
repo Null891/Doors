@@ -8,7 +8,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { CFG } from './config.js';
-import { toWorld, fwdOf } from './utils.js';
+import { toWorld, rightOf } from './utils.js';
 import { Mats } from './textures.js';
 import { Sfx } from './audio.js';
 
@@ -30,7 +30,9 @@ const ICON = {
   Crucifix: '✝️',
 };
 
-const FLASH_ON_INTENSITY = 2.5;
+// Physically-correct light falloff needs candela-scale intensity, not the
+// old ~1-3 convention (see rooms.js's LAMP_BASE_INT for the same fix).
+const FLASH_ON_INTENSITY = 320;
 
 function loadInt(key, def) {
   const raw = localStorage.getItem(key);
@@ -284,9 +286,12 @@ export class Inventory {
     const boxGeo = new THREE.BoxGeometry(3, 3.4, 3);
     const signGeo = new THREE.PlaneGeometry(3, 1);
 
-    // signs face along the room's forward axis; double-sided so an approaching
-    // player reads them regardless of which way they came in.
-    const signYaw = Math.atan2(fwdOf(frame)[0], fwdOf(frame)[1]);
+    // Pedestals sit near the side walls; the player walks down the room's
+    // center, so each sign's face must point INWARD (toward the path), not
+    // just "forward" — a plane's texture only reads correctly from the side
+    // its front normal points to. DoubleSide does NOT fix this: it paints
+    // the same UVs on both faces, so the back reads mirrored, not flipped.
+    const right = rightOf(frame);
 
     keys.forEach((key, i) => {
       const meta = ITEM_META[key];
@@ -296,6 +301,7 @@ export class Inventory {
       const side = (i % 2 === 0) ? 1 : -1;
       const row = Math.floor(i / 2);
       const { x, z } = toWorld(frame, side * (CFG.room.W / 2 - 4), 10 + row * 8);
+      const signYaw = Math.atan2(-side * right[0], -side * right[1]);
 
       // pedestal box (Mats.darkWood is a shared, never-disposed material)
       const box = new THREE.Mesh(boxGeo, Mats.darkWood);
