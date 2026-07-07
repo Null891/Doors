@@ -1,0 +1,334 @@
+// items.js — inventory, economy (gold/knobs), the hotbar-backed carried items
+// (Flashlight / Vitamins / Crucifix) plus the passive Lockpick/key counters,
+// and the shop/lobby purchase pedestals.
+//
+// Persistence is localStorage-only (static Vercel deploy, no backend): knobs
+// and the deepest-door stat survive across runs; everything else (gold, keys,
+// carried items, flashlight charge) is run-scoped and wiped by resetRun().
+
+import * as THREE from '../vendor/three.module.min.js';
+import { CFG } from './config.js';
+import { toWorld, fwdOf } from './utils.js';
+import { Mats } from './textures.js';
+import { Sfx } from './audio.js';
+
+// localStorage keys (namespaced)
+const LS_KNOBS = 'hundredDoors.knobs';
+const LS_BEST = 'hundredDoors.bestDoor';
+
+// per-item presentation. CFG uses lowercase keys; giveItem/entity code use
+// capitalized names — this table bridges both.
+const ITEM_META = {
+  flashlight: { name: 'Flashlight', icon: '🔦' },
+  lockpick:   { name: 'Lockpick',   icon: '🪛' },
+  vitamins:   { name: 'Vitamins',   icon: '💊' },
+  crucifix:   { name: 'Crucifix',   icon: '✝️' },
+};
+const ICON = {
+  Flashlight: '🔦',
+  Vitamins: '💊',
+  Crucifix: '✝️',
+};
+
+const FLASH_ON_INTENSITY = 2.5;
+
+function loadInt(key, def) {
+  const raw = localStorage.getItem(key);
+  if (raw == null) return def;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : def;
+}
+
+export class Inventory {
+  constructor(hud, sfx, player) {
+    this.hud = hud;
+    this.sfx = sfx || Sfx;
+    this.player = player;
+
+    // run-scoped
+    this.gold = 0;
+    this.keys = new Set();       // door numbers we hold keys for
+    this.lockpicks = 0;          // charge counter, NOT a hotbar item
+    this.slots = [null, null, null, null, null]; // exactly 5 hotbar slots
+    this.selected = 0;
+    this.flashlightOn = false;
+    this.flashlightBattery = 0;  // seconds remaining; 0 also means "none owned"
+
+    // persistent
+    this.knobs = loadInt(LS_KNOBS, 0);
+    this.bestDoor = loadInt(LS_BEST, 0);
+
+    // lazily created THREE.SpotLight (main.js parents it to the camera)
+    this._flashlightLight = null;
+  }
+
+  // ---- persistence ------------------------------------------------
+  saveKnobs() { localStorage.setItem(LS_KNOBS, String(this.knobs)); }
+  saveBestDoor() { localStorage.setItem(LS_BEST, String(this.bestDoor)); }
+
+  addKnobs(n) { this.knobs += n; this.saveKnobs(); }
+
+  spendKnobs(n) {
+    if (this.knobs < n) return false;
+    this.knobs -= n;
+    this.saveKnobs();
+    return true;
+  }
+
+  recordDoor(n) {
+    if (n > this.bestDoor) {
+      this.bestDoor = n;
+      this.saveBestDoor();
+    }
+  }
+
+  // ---- gold (in-memory, run-scoped) -------------------------------
+  addGold(n) { this.gold += n; }
+
+  spendGold(n) {
+    if (this.gold < n) return false;
+    this.gold -= n;
+    return true;
+  }
+
+  // hands over all carried gold (main.js converts to knobs via
+  // CFG.economy.goldPerKnob); we only surrender the raw amount.
+  takeAllGold() {
+    const g = this.gold;
+    this.gold = 0;
+    return g;
+  }
+
+  // ---- keys / lockpicks -------------------------------------------
+  addKey(doorNumber) { this.keys.add(doorNumber); }
+
+  useKey(doorNumber) {
+    if (!this.keys.has(doorNumber)) return false;
+    this.keys.delete(doorNumber);
+    return true;
+  }
+
+  addLockpick(n = 1) { this.lockpicks += n; }
+
+  useLockpick() {
+    if (this.lockpicks <= 0) return false;
+    this.lockpicks--;
+    return true;
+  }
+
+  // ---- hotbar item helpers ----------------------------------------
+  _findSlot(name) {
+    return this.slots.findIndex((s) => s && s.name === name);
+  }
+  _firstEmpty() {
+    return this.slots.findIndex((s) => s === null);
+  }
+
+  // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick'
+  giveItem(name) {
+    // Lockpick is a charge counter, never a hotbar slot.
+    if (name === 'Lockpick') { this.addLockpick(1); return; }
+
+    // Flashlight: a single carried tool — topping up battery rather than
+    // stacking. Picking one up (re)fills it to full.
+    if (name === 'Flashlight') {
+      const i = this._findSlot('Flashlight');
+      this.flashlightBattery = CFG.items.flashlightBattery;
+      if (i >= 0) {
+        this.slots[i].meter = 1;
+        return;
+      }
+      const empty = this._firstEmpty();
+      if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
+      this.slots[empty] = { name, icon: ICON.Flashlight, count: 1, meter: 1 };
+      return;
+    }
+
+    // Crucifix: a single carried, single-use item — no duplicates.
+    if (name === 'Crucifix') {
+      if (this._findSlot('Crucifix') >= 0) return; // already carrying one
+      const empty = this._firstEmpty();
+      if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
+      this.slots[empty] = { name, icon: ICON.Crucifix, count: 1, meter: null };
+      return;
+    }
+
+    // Vitamins: stackable — drink later, count increments if already held.
+    if (name === 'Vitamins') {
+      const i = this._findSlot('Vitamins');
+      if (i >= 0) { this.slots[i].count++; return; }
+      const empty = this._firstEmpty();
+      if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
+      this.slots[empty] = { name, icon: ICON.Vitamins, count: 1, meter: null };
+      return;
+    }
+  }
+
+  // ---- selection & use --------------------------------------------
+  selectSlot(i) {
+    if (i >= 0 && i < 5) this.selected = i;
+  }
+
+  get selectedItem() {
+    return this.slots[this.selected] || null;
+  }
+
+  useSelected() {
+    const item = this.selectedItem;
+    if (!item) return;
+
+    if (item.name === 'Flashlight') {
+      if (this.flashlightBattery <= 0) {
+        this.hud.toast('The flashlight is dead.', '#c33');
+        this.sfx.error();
+        return;
+      }
+      this.flashlightOn = !this.flashlightOn;
+      this._applyFlashlight();
+      this.sfx.lightSwitch();
+      return;
+    }
+
+    if (item.name === 'Vitamins') {
+      this.player.boostTimer = CFG.items.vitaminsTime;
+      // consume one
+      item.count--;
+      if (item.count <= 0) this.slots[this.selected] = null;
+      this.sfx.purchase(); // stand-in "gulp" cue
+      this.hud.toast('You feel faster.', '#7ed07e');
+      return;
+    }
+
+    if (item.name === 'Crucifix') {
+      // passive: entity code checks hasCrucifix()/consumeCrucifix() itself.
+      this.hud.toast('Hold it out when something comes…', '#d4af37');
+      return;
+    }
+  }
+
+  // ---- per-frame tick ---------------------------------------------
+  update(dt) {
+    if (this.flashlightOn) {
+      this.flashlightBattery = Math.max(0, this.flashlightBattery - dt);
+      if (this.flashlightBattery <= 0) {
+        this.flashlightOn = false;
+      }
+    }
+    // keep the flashlight slot's meter (and the spotlight) in sync every frame
+    const fi = this._findSlot('Flashlight');
+    if (fi >= 0) {
+      this.slots[fi].meter = this.flashlightBattery / CFG.items.flashlightBattery;
+    }
+    this._applyFlashlight();
+
+    this.renderHotbar();
+  }
+
+  // ---- crucifix (called by entity code via ctx.inventory) ----------
+  hasCrucifix() {
+    return this._findSlot('Crucifix') >= 0;
+  }
+
+  consumeCrucifix() {
+    const i = this._findSlot('Crucifix');
+    if (i >= 0) this.slots[i] = null;
+  }
+
+  // ---- flashlight spotlight ---------------------------------------
+  getFlashlightLight() {
+    if (!this._flashlightLight) {
+      // (color, intensity, distance, angle, penumbra, decay)
+      this._flashlightLight = new THREE.SpotLight(
+        0xfff2d0, 0, 42, Math.PI / 7, 0.4, 1.2,
+      );
+    }
+    return this._flashlightLight;
+  }
+
+  _applyFlashlight() {
+    if (!this._flashlightLight) return;
+    const lit = this.flashlightOn && this.flashlightBattery > 0;
+    this._flashlightLight.intensity = lit ? FLASH_ON_INTENSITY : 0;
+    this._flashlightLight.visible = lit;
+  }
+
+  // ---- rendering ---------------------------------------------------
+  renderHotbar() {
+    this.hud.renderHotbar(this.slots, this.selected);
+  }
+
+  // ---- full run reset (new game / retry) --------------------------
+  resetRun() {
+    this.gold = 0;
+    this.keys.clear();
+    this.lockpicks = 0;
+    this.slots = [null, null, null, null, null];
+    this.selected = 0;
+    this.flashlightOn = false;
+    this.flashlightBattery = 0;
+    this._applyFlashlight(); // turns the spotlight off if it exists
+  }
+
+  // ---- shop / lobby pedestals -------------------------------------
+  // group: the room's THREE.Group (owns disposal of children meshes).
+  // frame: the room's entry Frame. mode: 'shop' (gold) | 'lobby' (knobs).
+  buildShopPedestals(group, frame, mode) {
+    const isShop = mode === 'shop';
+    const prices = isShop ? CFG.shopGold : CFG.lobbyKnobs;
+    const currencyLabel = isShop ? 'gold' : 'knobs';
+
+    const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix'];
+    const interactables = [];
+
+    // shared geometry across the (few) pedestals in this room
+    const boxGeo = new THREE.BoxGeometry(3, 3.4, 3);
+    const signGeo = new THREE.PlaneGeometry(3, 1);
+
+    // signs face along the room's forward axis; double-sided so an approaching
+    // player reads them regardless of which way they came in.
+    const signYaw = Math.atan2(fwdOf(frame)[0], fwdOf(frame)[1]);
+
+    keys.forEach((key, i) => {
+      const meta = ITEM_META[key];
+      const displayName = meta.name;
+      const price = prices[key];
+
+      const side = (i % 2 === 0) ? 1 : -1;
+      const row = Math.floor(i / 2);
+      const { x, z } = toWorld(frame, side * (CFG.room.W / 2 - 4), 10 + row * 8);
+
+      // pedestal box (Mats.darkWood is a shared, never-disposed material)
+      const box = new THREE.Mesh(boxGeo, Mats.darkWood);
+      box.position.set(x, 1.7, z);
+      group.add(box);
+
+      // floating price sign (Mats.sign allocates a fresh canvas texture+mat —
+      // see disposal note in report). Single-line: item name + price.
+      const signMat = Mats.sign(`${displayName} ${price}`, '#d4af37');
+      signMat.side = THREE.DoubleSide;
+      const sign = new THREE.Mesh(signGeo, signMat);
+      sign.position.set(x, 4.1, z);
+      sign.rotation.y = signYaw;
+      group.add(sign);
+
+      interactables.push({
+        pos: { x, y: 2.5, z },
+        range: 4,
+        getLabel: (_ctx) => `Buy ${displayName} (${price} ${currencyLabel})`,
+        interact: (_ctx) => {
+          const paid = isShop ? this.spendGold(price) : this.spendKnobs(price);
+          if (!paid) {
+            this.hud.toast(`Not enough ${currencyLabel}.`, '#c33');
+            this.sfx.error();
+            return;
+          }
+          this.giveItem(displayName);
+          this.sfx.purchase();
+          this.hud.toast(`Bought ${displayName}!`, '#7ed07e');
+        },
+      });
+    });
+
+    return interactables;
+  }
+}

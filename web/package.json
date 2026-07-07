@@ -1,0 +1,6 @@
+{
+  "name": "hundred-doors-web",
+  "private": true,
+  "type": "module",
+  "description": "Browser build of the DOORS-inspired horror game. Static site - no build step."
+}

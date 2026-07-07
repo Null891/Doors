@@ -1,149 +1,94 @@
-# DOORS-like — a complete, playable Roblox horror game
+# A Hundred Doors — a DOORS-inspired horror game, playable in the browser
 
-A full DOORS-inspired game written in Luau with **zero assets required** — every
-room, door, closet, entity, item, and UI element is generated procedurally in
-code. Paste it into Studio (or sync with Rojo), press Play, and you have a
-working run from the Lobby to the Door 100 elevator escape.
+A complete first-person horror game built from scratch in vanilla JS + Three.js —
+**zero build step, zero external dependencies at runtime, zero art assets**.
+Every wall, door, closet, entity, and sound is generated procedurally at load
+time. Open [`web/index.html`](web/index.html) locally or deploy `web/` to
+Vercel and you have a full run from the lobby to the Door 100 elevator escape.
+
+*(The project also contains the original Roblox/Luau version of this game in
+[`src/`](src/) — see [the Roblox section](#the-original-roblox-version) below.
+Both implement the same design; the web version is the actively developed one.)*
+
+## Play it
+
+```
+cd web
+npx serve .        # or: python -m http.server 8080, or any static file server
+```
+
+Open the printed URL. Click **ENTER THE HOTEL**, click once on the canvas to
+lock the mouse, and go.
+
+**Controls:** `WASD` move · mouse look · `E` interact · `C`/`Ctrl` crouch ·
+`1–5` select item · `F` use selected item · `Esc` pause.
 
 ## What's in the game
 
 | System | Details |
 |---|---|
-| Procedural generation | Weighted room templates (hallways, grand halls, 90° turns), last-5-rooms kept in memory, overlap detection with re-rolls, Void straggler teleport when rooms cull |
-| Doors & locks | Numbered doors, ~15% locked with a key hidden in the room, lockpicks, Guiding Light makes the key glow if the group is stuck 45s |
-| Hiding | Closets with occupancy, letterbox+FOV effect, and the **Hide** entity: camp too long → "GET OUT" → thrown out with damage |
-| **Rush** | Light flicker + heartbeat warning, sweeps every loaded room oldest→newest at 44 studs/s, shatters lights, kills anyone not hidden (125 dmg) |
-| **Ambush** | Faster (55), spares the lights, rebounds 2–6 extra passes so you must cycle in/out of closets |
-| **Screech** | Hunts players in dark rooms (random dark rooms + the always-dark 90–99 "Greenhouse" stretch). "Psst" behind you → look at it within 2.5s or take 40 dmg |
-| **Eyes** | Purple cluster parked mid-room; looking at it ticks 10 dmg. Client reports camera state, server validates position |
-| Items | Flashlight (draining battery), Vitamins (speed boost), Lockpick, **Crucifix** (banishes Rush/Ambush on contact) — all procedural Tools |
-| Economy | Gold piles in rooms → Jeff's Shop safe room at Door 52 (gold prices) → on death/escape gold converts to **Knobs** (20:1, remainder ≥10 rounds up, +1 per 10 doors, +15 win bonus), persisted via DataStore, spent at lobby pedestals |
-| Run flow | Full-wipe resets the hotel, Door 100 is an elevator room — pull the lever, everyone alive gets paid and the run resets. Death screen with per-entity tips |
+| Procedural generation | Weighted room templates (hallways, grand halls, 90° turns), 4 rooms kept live at once, overlap-safe re-rolling, Void straggler damage+teleport when a lagging room culls |
+| Doors & locks | Numbered doors, ~16% locked with a key hidden in the room, lockpicks as a fallback |
+| Hiding | Closets you walk into and hide inside; camp past 9s and a warning fires, past 10.6s you're forced out and hurt |
+| **Rush** | Every lamp in every loaded room flickers, then a black shape sweeps the whole loaded stretch at 46 u/s, shattering lights as it enters each room, killing anyone not hidden |
+| **Ambush** | Faster, spares the lights, rebounds back and forth 2–5 times — you have to keep re-hiding for every pass |
+| **Screech** | Spawns behind you in dark rooms with a "psst" — center it in your view within 2.5s or take a bite |
+| **Eyes** | A purple gaze parked mid-room; looking directly at it ticks damage, looking away is safe |
+| **Halt** | A huge "STOP" warning — any movement or camera turn during the window is a hit |
+| **Dupe** | Fake exit doors with scrambled numbers on side walls — walk into one and it bites |
+| **Jack** | A rare closet jumpscare — hiding isn't always safe |
+| **Figure** | Activates at the library (Door 50) and roams persistently; uncrouched movement and interactions draw it in, contact is fatal, and it can sniff you out of a closet if you move |
+| **The Library (Door 50)** | Read all the books, cross-reference the paper's numeral→shape key, enter the 5-digit code on the padlock |
+| Items & economy | Flashlight (battery drain), Vitamins (speed boost), Crucifix (banishes Rush/Ambush on contact), Lockpicks, gold piles, Jeff's Shop at Door 52 (safe room), gold→knobs conversion on death/escape (20:1, rounds up), knobs persisted via `localStorage` |
+| Audio | 100% synthesized at runtime via Web Audio (oscillators + filtered noise) — no audio files, so sound works immediately with no asset setup |
 
-## Quick start
+## Deploying to Vercel
 
-### Option A — Rojo (this folder is a ready project)
-```
-rojo init  # not needed, default.project.json is included
-rojo serve # then connect from the Rojo plugin in Studio
-```
+This repo is already laid out for it — `vercel.json` points `outputDirectory`
+at `web/` with no build command (it's a static site). From the Vercel
+dashboard: **New Project → Import this repo** → it should auto-detect the
+config and deploy. Every push to `main` redeploys automatically once the
+GitHub integration is connected. No environment variables or serverless
+functions are needed.
 
-### Option B — manual copy-paste into Studio
-Create these instances and paste each file's contents into the matching script.
-**The Instance name must match the filename without extension** (e.g.
-`Main.server.lua` → a `Script` named `Main`).
+## Architecture
 
-| Studio location | Instance | From file |
-|---|---|---|
-| ReplicatedStorage → Folder `Shared` | ModuleScript `GameConfig` | src/Shared/GameConfig.lua |
-| " | ModuleScript `AudioIds` | src/Shared/AudioIds.lua |
-| " | ModuleScript `SoundUtil` | src/Shared/SoundUtil.lua |
-| " | ModuleScript `RoomTemplates` | src/Shared/RoomTemplates.lua |
-| ServerScriptService → Folder `DoorsServer` | **Script** `Main` | src/Server/Main.server.lua |
-| " | ModuleScript `RoomGenerator` | src/Server/RoomGenerator.lua |
-| " | ModuleScript `DoorService` | src/Server/DoorService.lua |
-| " | ModuleScript `HidingService` | src/Server/HidingService.lua |
-| " | ModuleScript `LightingService` | src/Server/LightingService.lua |
-| " | ModuleScript `EntityService` | src/Server/EntityService.lua |
-| " | ModuleScript `InventoryService` | src/Server/InventoryService.lua |
-| " | ModuleScript `ItemService` | src/Server/ItemService.lua |
-| " | ModuleScript `DataService` | src/Server/DataService.lua |
-| " | ModuleScript `RunManager` | src/Server/RunManager.lua |
-| DoorsServer → Folder `Entities` | ModuleScript `Rush` | src/Server/Entities/Rush.lua |
-| " | ModuleScript `Screech` | src/Server/Entities/Screech.lua |
-| " | ModuleScript `Eyes` | src/Server/Entities/Eyes.lua |
-| StarterPlayer → StarterPlayerScripts → Folder `DoorsClient` | **LocalScript** `ClientMain` | src/Client/ClientMain.client.lua |
-| " | ModuleScript `UIBuilder` | src/Client/UIBuilder.lua |
-| " | ModuleScript `CameraShake` | src/Client/CameraShake.lua |
+Everything lives under [`web/game/`](web/game/), plain ES modules loaded
+directly by the browser (`<script type="module">`, no bundler):
 
-Then:
-1. **Delete** the default `Baseplate` and any `SpawnLocation` (the game builds
-   its own world at the origin and teleports players itself).
-2. For knob persistence: Game Settings → Security → **Enable Studio Access to
-   API Services** (the game still runs without it; knobs just won't save).
-3. Press **Play**. You spawn in the lobby — open the door marked **1**.
+- **`config.js`** — every tuning number (room sizes, entity speeds/damage/chances, economy) in one place
+- **`utils.js`** — RNG helpers and the `Frame {x,z,dir}` coordinate system every room is built in (quarter-turn rotations only, so all geometry stays axis-aligned and collision is cheap AABB math)
+- **`textures.js`** — every material is a `<canvas>`-painted texture baked once at boot; `Mats.*` factories create per-room materials (must be disposed with the room), a handful of `Mats.*` constants are shared forever
+- **`audio.js`** — `Sfx`, a fully synthesized sound engine (oscillators + filtered white noise, no audio files)
+- **`input.js`**, **`player.js`**, **`hud.js`** — pointer-lock FPS controller, collision (cylinder-vs-AABB), and the entire UI (built as DOM, not canvas)
+- **`rooms.js`** — builds one room's geometry from a `Frame` + options; every interactable it creates just forwards to `ctx.game.*` — it has no idea what a lock or gold pile *means*, only how to describe one and report the event
+- **`world.js`** — the room sequence: generation, weighted templates with overlap-safe re-rolling, the three special rooms (Door 50 library / Door 52 shop / Door 100 elevator), culling
+- **`entities/`** — one file per hazard (`sweeper.js` handles both Rush and Ambush), `director.js` rolls the spawn table on every door opened and ticks whichever entities are live
+- **`items.js`** — inventory, hotbar, shop pedestals, the economy
+- **`main.js`** — the only file that owns policy. It builds one `ctx` object (`{ player, world, inventory, hud, input, game }`) passed to every entity and interactable; `ctx.game` is where "opening a door" or "hiding in a closet" actually *means* something (lock checks, room generation, payout math). Every other module just describes the world and calls back into it.
 
-### Studio test commands (chat, Studio only)
-`/rush` `/ambush` `/eyes` `/screech` `/reset` `/gold` (grants 500 gold)
+This split is what let the room builder, the entity AI, and the inventory
+system be built independently against a shared contract without needing to
+know about each other's internals.
 
-## Adding sound
-Everything is silent until you fill in `ReplicatedStorage/Shared/AudioIds`.
-Each entry has a Toolbox search suggestion in a comment — grab any Creator
-Store audio (licensed for all experiences), Copy Asset ID, paste the number.
-Id `0` = skipped gracefully, so fill them in incrementally.
+## Known limitations
 
-## How it works (architecture)
+- **Single-player.** The original Roblox version supports multiplayer via
+  Roblox's networking; a static Vercel deploy has no realtime backend, so
+  this is a deliberate scope cut, not an oversight.
+- Not yet implemented: Seek (Door 200 boss), a second floor (The Mines), and
+  the modifier system from the Roblox version's design doc. `entities/`
+  follows a uniform `update(dt, ctx)` state-machine pattern, so adding a new
+  hazard is mostly "write one more file and register it in `director.js`."
+- Sound is synthesized, not sampled — it's intentionally simple (this was a
+  design choice to ship with zero asset dependencies, not a placeholder).
 
-**Server owns everything gameplay.** Clients only receive cues and send two
-camera reports the server physically cannot compute (camera orientation never
-replicates): "Screech is on my screen" and "Eyes is on my screen". Both are
-validated server-side for timing/position, and neither can be exploited to
-*hurt* other players — lying only saves yourself from a cosmetic-check entity.
+## The original Roblox version
 
-**Wiring:** `Main` creates the RemoteEvents, requires every service module,
-and passes one shared `ctx` table to each `init()` — no circular requires.
-
-**Generation math:** every room is built in a local space whose origin is the
-entry doorway (x=right, z=depth). A room's exit doorway CFrame (looking
-outward) becomes the next room's base, so turns compose naturally. Because
-all yaw is in 90° steps, room footprints are axis-aligned boxes — overlap
-checks are cheap AABB tests, re-rolled up to 8 times before falling back to a
-straight hallway.
-
-**Rush's path** is just each loaded room's entry/exit points at chest height,
-concatenated oldest→newest plus a 40-stud overshoot; a Heartbeat loop steps
-the position at fixed studs/sec and radius-checks every non-`Hidden` player.
-Ambush reuses the exact same machinery with a rebound loop around it.
-
-**Remotes:** `RoomChanged`, `Notify`, `EntityCue(name, phase, data?)`,
-`HideState("in"|"out"|"warn")`, `DeathScreen`, `WinScreen`, and client→server
-`EntityReport`.
-
-**Tuning:** every number (spawn chances, speeds, damage, prices, room sizes)
-lives in `GameConfig.lua`. New room shapes go in `RoomTemplates.lua`.
-
-## Expanding: more entities & floors
-
-The `EntityService.onDoorOpened` roll table + the `ctx` pattern means each new
-entity is one ModuleScript plus one roll. Recipes, in rough build order:
-
-- **Halt** — easiest: on spawn, teleport the player into a long dark corridor
-  room (build with `buildRoom`-style parts), flash "TURN AROUND" cues via
-  `EntityCue`, and damage on wrong movement direction (compare
-  `humanoid.MoveDirection` with the corridor axis).
-- **Dupe** — when a template rolls, add 1–2 fake exit doors with wrong
-  numbers on side walls. Their prompt deals 40 damage and shakes the camera.
-  All the door-building code in `RoomGenerator.makeDoor` is reusable.
-- **A-60 / A-90** — A-60 is Rush with no light flicker (audio-only cue) and a
-  faster despawn; A-90 is pure client+server input check: `EntityCue` shows
-  the stop sign, client reports any input via `EntityReport`, server damages.
-- **Jack** — occupies a random closet; entering it flashes a jumpscare
-  (`EntityCue`) and throws the player out. ~30 lines inside `HidingService`.
-- **Figure (Door 50 / library boss)** — add a `Crouch` remote that halves
-  `WalkSpeed` (constant already in `GameConfig`) and set a `Noisy` attribute
-  from movement/interactions. The Figure is a Model pathfinding toward the
-  loudest recent noise position (`PathfindingService`), instant-kill on touch
-  unless hidden; hiding while it's near triggers a heartbeat minigame
-  (client-side timing UI → report result). Build the library as a fixed
-  set-piece room injected at `number == 50` in `generateNext` — the same hook
-  the shop (52) and elevator (100) already use, with the book/code puzzle
-  gating the exit door's `Locked` attribute.
-- **Seek chase (Doors 30–40 style)** — generate 6–8 rooms ahead at once, then
-  a scripted chase: a moving kill-wall behind the players using the same
-  path-node traversal as Rush, with `TweenService` obstacles to dodge.
-- **Floor 2 (Mines)** — swap `STYLE` colors/materials to rock+metal, add
-  vertical `lcf` offsets between rooms (the base-CFrame chaining already
-  supports it), and introduce Grumbles as `PathfindingService` patrol agents
-  with line-of-sight raycasts and a last-known-position memory.
-- **Modifiers** — a lobby pedestal that writes multipliers into a
-  `RunModifiers` table read by `GameConfig` consumers (e.g. Lights Out:
-  `DarkRoomChance = 1`, payout ×1.25).
-
-## Performance & best practices already applied
-- Rooms are capped at `MaxLoadedRooms`; everything in a room dies with its
-  single Model (`Destroy` cascades — no leaked connections to world objects).
-- All world interaction uses ProximityPrompts (built-in UI, range-gated),
-  re-validated server-side (distance, occupancy, currency, locks).
-- Lights use `Shadows = false` point lights; entity movement is one anchored
-  `PivotTo` per frame (no physics).
-- DataStore calls are pcall-wrapped, throttled (60s autosave + leave/close).
+[`src/`](src/) contains a full DOORS-inspired game in Luau for Roblox Studio,
+with the same core systems (procedural generation, Rush, hiding, keys/locks,
+gold→knobs economy) built against Roblox's engine (RemoteEvents,
+ModuleScripts, DataStores). See [src's own layout](src/Server) — copy each
+script into Studio per the Instance/path mapping, or sync via
+[`default.project.json`](default.project.json) with Rojo. It predates the web
+port and isn't being actively extended, but it's a complete, playable base.
