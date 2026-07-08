@@ -89,6 +89,8 @@ export class Hud {
     this.objectiveEl = el('div', { id: 'objective', cls: 'hud-label' }, r);
     this.toastEl = el('div', { id: 'toast', cls: 'hud-label' }, r);
     this.captionEl = el('div', { id: 'caption' }, r);
+    // Guiding Light narration line (letter-reveal, gold) — see narrate()
+    this.narrateEl = el('div', { id: 'narrate' }, r);
     this.warnEl = el('div', { id: 'big-warning' }, r);
 
     // hotbar
@@ -220,6 +222,8 @@ export class Hud {
     this.deathArtCanvas.width = 512;
     this.deathArtCanvas.height = 512;
     this.deathTitle = el('h2', { text: 'YOU DIED' }, this.deathEl);
+    // Guiding Light's whispered line, revealed letter by letter above the tip
+    this.deathQuote = el('div', { cls: 'guiding-quote' }, this.deathEl);
     this.deathTip = el('div', { cls: 'tip' }, this.deathEl);
     this.deathKnobs = el('div', { cls: 'knob-gain' }, this.deathEl);
     this.deathStats = el('div', { cls: 'stats' }, this.deathEl);
@@ -699,13 +703,39 @@ export class Hud {
     this.saveCodeMsg.style.color = isError ? 'var(--blood)' : '#7ed07e';
   }
 
-  showDeath({ killer, tip, knobs, door }) {
+  showDeath({ killer, tip, quote, knobs, door }) {
     this._hideAllScreens();
     this.deathTitle.textContent = killer ? `${killer.toUpperCase()} GOT YOU` : 'YOU DIED';
+    this._reveal(this.deathQuote, quote || '');
     this.deathTip.textContent = tip || '';
     this.deathKnobs.textContent = knobs > 0 ? `+${knobs} knobs` : '';
     this.deathStats.textContent = `You made it to Door ${door}.`;
     this.deathEl.classList.add('visible');
+  }
+
+  // Guiding-Light-style letter-by-letter reveal into `elm`. Any new call
+  // cancels the previous reveal on the same element.
+  _reveal(elm, text, cps = 28) {
+    if (elm._revealTimer) clearInterval(elm._revealTimer);
+    elm.textContent = '';
+    if (!text) return;
+    let i = 0;
+    elm._revealTimer = setInterval(() => {
+      i++;
+      elm.textContent = text.slice(0, i);
+      if (i >= text.length) { clearInterval(elm._revealTimer); elm._revealTimer = null; }
+    }, 1000 / cps);
+  }
+
+  // In-game Guiding Light narration: a gold letter-reveal line that sits
+  // above the caption area and fades itself out after `hold` seconds.
+  narrate(text, hold = 4.5) {
+    this._reveal(this.narrateEl, text);
+    this.narrateEl.classList.add('visible');
+    clearTimeout(this._narrateTimeout);
+    this._narrateTimeout = setTimeout(() => {
+      this.narrateEl.classList.remove('visible');
+    }, hold * 1000 + (text.length / 28) * 1000);
   }
 
   showWin({ knobs, gold }) {

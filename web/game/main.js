@@ -91,6 +91,9 @@ const closetTimers = new Map(); // closet -> { warn, force }
 // as a tunable but nothing ever consumed it; this wires it up.
 let stuckTimer = 0;
 let guidingLight = null; // { group, glow, glowMat, light, pedestal, phase }
+// one-shot Guiding Light narration beats, re-armed each run
+let narratedSeek = false;
+let narratedDark = false;
 
 const ctx = { dt: 0, player, world, inventory, hud, input: Input, game: null };
 
@@ -114,6 +117,21 @@ const DEATH_TIPS = {
   Hide: "Don't overstay in a closet — get out before something makes you.",
   Void: "Don't fall behind.",
   Seek: 'RUN. Sprint forward through every door — never stop, never double back.',
+};
+// Guiding Light's whispered line on the death screen — softer, in-fiction
+// counterpart to the blunt mechanical tip above it.
+const GUIDING_QUOTES = {
+  Rush: 'You heard it coming. Next time, let the flicker warn you...',
+  Ambush: 'It never leaves after one pass. Patience... then hide again.',
+  Screech: "It hates being seen. So see it.",
+  Eyes: 'Some things only hurt you when you look.',
+  Halt: 'It only wanted you to keep moving away...',
+  Dupe: 'The numbers never lie. The doors sometimes do.',
+  Jack: 'Not every hiding place wants you in it.',
+  Figure: "It cannot see you. It never needed to.",
+  Hide: 'That space was never yours to keep.',
+  Void: 'The dark closes in behind us. Stay with me.',
+  Seek: 'I closed every door I could. You have to be faster.',
 };
 
 function computeKnobs(gold, bonus = 0) {
@@ -220,7 +238,13 @@ function killPlayer(cause) {
   shake(2.5);
   setTimeout(() => {
     const { knobs } = endRunPayout();
-    hud.showDeath({ killer: cause, tip: DEATH_TIPS[cause] || 'Keep moving.', knobs, door: world.getCurrentRoom().number });
+    hud.showDeath({
+      killer: cause,
+      tip: DEATH_TIPS[cause] || 'Keep moving.',
+      quote: GUIDING_QUOTES[cause] || '',
+      knobs,
+      door: world.getCurrentRoom().number,
+    });
   }, 900);
 }
 
@@ -424,6 +448,11 @@ function startRun() {
 
   hud.fadeTo(1, 0);
   requestAnimationFrame(() => requestAnimationFrame(() => hud.fadeTo(0, 1.2)));
+  narratedSeek = false;
+  narratedDark = false;
+  setTimeout(() => {
+    if (gameState === 'playing') hud.narrate('One hundred doors. Keep moving — I will light what I can.');
+  }, 1400);
 
   Input.requestLock();
 }
@@ -630,6 +659,14 @@ function frame() {
     const curRoom = world.getRoomAt(player.pos.x, player.pos.y, player.pos.z);
     updateObjective(curRoom);
     updateGuidingLight(dt, curRoom);
+    if (director.seek.active && !narratedSeek) {
+      narratedSeek = true;
+      hud.narrate("Don't stop. Don't look back. RUN.");
+    }
+    if (curRoom && curRoom.dark && !curRoom.isLobby && !narratedDark) {
+      narratedDark = true;
+      hud.narrate('The lights here have given up. Tread carefully.');
+    }
     const inDanger = curRoom && curRoom.dark && !curRoom.isShop && !curRoom.isElevator;
     scene.fog.far = damp(scene.fog.far, inDanger ? CFG.fogDark : CFG.fogNormal, 2, dt);
     const hunted = director.sweeper.active || director.seek.active || director.halt.active;

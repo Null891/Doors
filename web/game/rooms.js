@@ -219,6 +219,12 @@ export function stepRoomAnimations(room, dt) {
     spin.mesh.rotation.y += spin.speed * dt;
     spin.mesh.position.y = spin.baseY + Math.sin(t * 1.6 + spin.phase) * 0.35;
   }
+  // gentle idle sway for standing props (shop NPCs): a breath-like bob and
+  // a slow rock around their base yaw — much subtler than _spinProps
+  for (const sway of room._swayProps) {
+    sway.mesh.position.y = sway.baseY + Math.sin(t * 1.1 + sway.phase) * 0.08;
+    sway.mesh.rotation.y = sway.baseYaw + Math.sin(t * 0.6 + sway.phase) * 0.12;
+  }
 }
 
 // ---- door (exit) -------------------------------------------------------
@@ -433,7 +439,7 @@ export function buildRoom(frame, opts) {
     exitDoor: null, keyPedestal: null, goldPiles: [],
     leverGroup: null, interactables: [],
     lightsOn: !dark,
-    _doorAnims: [], _spinProps: [], _disposeGeo: [], _disposeMat: [],
+    _doorAnims: [], _spinProps: [], _swayProps: [], _disposeGeo: [], _disposeMat: [],
   };
 
   const b = makeBuilder(frame, group);
@@ -478,6 +484,87 @@ export function buildRoom(frame, opts) {
   if (isShop || isLobby || isElevator) {
     room.lights.push(makeLamp(b, group, frame, -W / 4, length / 2, H, false));
     room.lights.push(makeLamp(b, group, frame, W / 4, length / 2, H, false));
+  }
+
+  // ---- shop NPCs: Jeff behind his counter, El Goblino lounging nearby ----
+  // Pure flavor (idle sway + rotating interaction barks), mirroring the real
+  // game's safe-room pair. No AI — they never move from their spots.
+  if (isShop) {
+    const buildNpc = (localX, localZ, bodyColor, eyeColor, scale, faceSign) => {
+      const npc = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85, metalness: 0.02 });
+      const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
+      b.mats.push(bodyMat, eyeMat);
+      const bodyGeo = new THREE.SphereGeometry(1.1, 12, 10);
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.scale.set(1, 1.35, 0.9);
+      body.position.y = 1.5;
+      npc.add(body);
+      b.geos.push(bodyGeo);
+      const headGeo = new THREE.SphereGeometry(0.62, 10, 8);
+      const head = new THREE.Mesh(headGeo, bodyMat);
+      head.position.set(0, 3.15, 0.12);
+      npc.add(head);
+      b.geos.push(headGeo);
+      const earGeo = new THREE.ConeGeometry(0.22, 0.9, 6);
+      for (const sx of [-1, 1]) {
+        const ear = new THREE.Mesh(earGeo, bodyMat);
+        ear.position.set(sx * 0.55, 3.65, 0);
+        ear.rotation.z = -sx * 0.5;
+        npc.add(ear);
+      }
+      b.geos.push(earGeo);
+      const eyeGeo = new THREE.SphereGeometry(0.11, 8, 6);
+      for (const sx of [-1, 1]) {
+        const eye = new THREE.Mesh(eyeGeo, eyeMat);
+        eye.position.set(sx * 0.24, 3.24, 0.55);
+        npc.add(eye);
+      }
+      b.geos.push(eyeGeo);
+      const p = toWorld(frame, localX, localZ);
+      npc.position.set(p.x, 0, p.z);
+      npc.scale.setScalar(scale);
+      const baseYaw = meshYaw(frame) + faceSign;
+      npc.rotation.y = baseYaw;
+      group.add(npc);
+      room._swayProps.push({ mesh: npc, baseY: 0, baseYaw, phase: rand(0, 6.28) });
+      return npc;
+    };
+
+    // Jeff: taller, grey-mauve, behind a small counter near the far end
+    b.box(0, length - 8.2, 6.2, 1.8, 1.5, 3.0, Mats.darkWood);       // counter
+    b.box(0, length - 8.2, 6.6, 2.1, 3.02, 0.14, Mats.brass);        // countertop trim
+    buildNpc(0, length - 10.2, 0x8a7f8f, 0xf2ecd8, 1.25, Math.PI);
+    const jeffBarks = [
+      '"Welcome, welcome. Take your time."',
+      '"Everything\'s for sale. Mostly."',
+      '"Stay as long as you like — it\'s safe in here."',
+      '"Careful out there. Door count only goes up."',
+    ];
+    let jeffI = 0;
+    const jp = toWorld(frame, 0, length - 10.2);
+    room.interactables.push({
+      pos: { x: jp.x, y: 3, z: jp.z }, range: 5,
+      getLabel: () => 'Talk to Jeff',
+      interact: (ctx) => { ctx.game.caption(jeffBarks[jeffI++ % jeffBarks.length]); },
+    });
+
+    // El Goblino: shorter, maroon, lounging against the left wall mid-room
+    buildNpc(-(W / 2 - 4.5), length / 2 - 2, 0x7d3a2c, 0xffd27e, 0.95, Math.PI / 2);
+    const gobBarks = [
+      '"El Goblino was here."',
+      '"You look terrible, amigo. Buy a bandage."',
+      '"Me? Fight those things? I live HERE."',
+      '"Jeff\'s prices are... negotiable. (They are not.)"',
+      '"You hear Rush out there? Yeah. I\'m staying."',
+    ];
+    let gobI = 0;
+    const gp = toWorld(frame, -(W / 2 - 4.5), length / 2 - 2);
+    room.interactables.push({
+      pos: { x: gp.x, y: 2.6, z: gp.z }, range: 5,
+      getLabel: () => 'Talk to El Goblino',
+      interact: (ctx) => { ctx.game.caption(gobBarks[gobI++ % gobBarks.length]); },
+    });
   }
 
   // ---- switch ----
@@ -654,6 +741,41 @@ export function buildRoom(frame, opts) {
         b.geos.push(pGeo);
         group.add(mesh);
       }
+    }
+  }
+
+  // ---- windows: an occasional tall curtained window leaking cold
+  // moonlight, like the real hotel's window rooms. Lit rooms only (a moon
+  // shaft in a pitch-dark Screech room would undercut the darkness), and
+  // never on a wall that carries the side exit.
+  if (!isLibrary && !isGreenhouse && !isElevator && !dark && chance(0.18)) {
+    const side = choice([-1, 1]);
+    if (exit !== (side === -1 ? 'left' : 'right')) {
+      const z = randInt(8, Math.max(9, length - 8));
+      const p = toWorld(frame, side * (W / 2 - 0.35), z);
+      const inYaw = meshYaw(frame) + (side === -1 ? Math.PI / 2 : -Math.PI / 2);
+      // pane: a near-black plane with the faintest blue sheen
+      const paneMat = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.35, metalness: 0.1, emissive: 0x0a1626, emissiveIntensity: 0.7 });
+      b.trackMat(paneMat);
+      const paneGeo = new THREE.PlaneGeometry(3.2, 6.4);
+      const pane = new THREE.Mesh(paneGeo, paneMat);
+      pane.position.set(p.x, 7.2, p.z);
+      pane.rotation.y = inYaw;
+      b.geos.push(paneGeo);
+      group.add(pane);
+      // frame + center mullion, and heavy drapes bunched at either side
+      b.box(side * (W / 2 - 0.3), z - 1.85, 0.25, 0.5, 7.2, 6.8, Mats.darkWood);
+      b.box(side * (W / 2 - 0.3), z + 1.85, 0.25, 0.5, 7.2, 6.8, Mats.darkWood);
+      b.box(side * (W / 2 - 0.3), z, 0.22, 3.9, 10.75, 0.45, Mats.darkWood);
+      b.box(side * (W / 2 - 0.3), z, 0.22, 3.9, 3.7, 0.45, Mats.darkWood);
+      b.box(side * (W / 2 - 0.3), z, 0.2, 0.28, 7.2, 6.4, Mats.darkWood);
+      b.box(side * (W / 2 - 0.42), z - 2.5, 0.4, 1.0, 6.9, 7.4, Mats.upholstery);
+      b.box(side * (W / 2 - 0.42), z + 2.5, 0.4, 1.0, 6.9, 7.4, Mats.upholstery);
+      // the moonlight itself: a cold spill pooling just inside the window
+      const mp = toWorld(frame, side * (W / 2 - 1.8), z);
+      const moon = new THREE.PointLight(0x9db8e8, 90, 20, 1.8);
+      moon.position.set(mp.x, 6.5, mp.z);
+      group.add(moon);
     }
   }
 

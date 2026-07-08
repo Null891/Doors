@@ -766,3 +766,33 @@ html, body {
   letter-spacing: 0.06em;
   font-style: italic;
 }
+
+/* ---- Guiding Light narration (letter-reveal, gold) ---- */
+#narrate {
+  position: absolute;
+  left: 50%;
+  bottom: 27%;
+  transform: translateX(-50%);
+  max-width: 640px;
+  padding: 0 20px;
+  text-align: center;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  font-size: 1.02rem;
+  color: #e8cf7a;
+  text-shadow: 0 0 14px rgba(212, 175, 55, 0.55), 0 2px 6px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+}
+#narrate.visible { opacity: 1; }
+
+.death-screen .guiding-quote {
+  min-height: 1.4em;
+  margin: 2px 0 6px;
+  font-style: italic;
+  letter-spacing: 0.07em;
+  font-size: 0.98rem;
+  color: #e8cf7a;
+  text-shadow: 0 0 12px rgba(212, 175, 55, 0.5);
+}
