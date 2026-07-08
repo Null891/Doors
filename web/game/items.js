@@ -25,6 +25,7 @@ const ITEM_META = {
   crucifix:   { name: 'Crucifix',   icon: '✝️' },
   bandage:    { name: 'Bandage',    icon: '🩹' },
   battery:    { name: 'Battery',    icon: '🔋' },
+  candle:     { name: 'Candle',     icon: '🕯️' },
 };
 const ICON = {
   Flashlight: '🔦',
@@ -32,7 +33,12 @@ const ICON = {
   Crucifix: '✝️',
   Bandage: '🩹',
   Battery: '🔋',
+  Candle: '🕯️',
 };
+
+// The candle's small warm halo — dim next to the flashlight beam, but it
+// never runs out, and any lit light source discourages Screech.
+const CANDLE_INTENSITY = 85;
 
 // Physically-correct light falloff needs candela-scale intensity, not the
 // old ~1-3 convention (see rooms.js's LAMP_BASE_INT for the same fix).
@@ -62,13 +68,15 @@ export class Inventory {
     this.selected = 0;
     this.flashlightOn = false;
     this.flashlightBattery = 0;  // seconds remaining; 0 also means "none owned"
+    this.candleLit = false;
 
     // persistent
     this.knobs = loadInt(LS_KNOBS, 0);
     this.bestDoor = loadInt(LS_BEST, 0);
 
-    // lazily created THREE.SpotLight (main.js parents it to the camera)
+    // lazily created lights (main.js parents both to the camera)
     this._flashlightLight = null;
+    this._candleLight = null;
     this._flickerPhase = 0;
   }
 
@@ -195,6 +203,15 @@ export class Inventory {
       return;
     }
 
+    // Candle: a single carried toggle light — no duplicates, no battery.
+    if (name === 'Candle') {
+      if (this._findSlot('Candle') >= 0) return;
+      const empty = this._firstEmpty();
+      if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
+      this.slots[empty] = { name, icon: ICON.Candle, count: 1, meter: null };
+      return;
+    }
+
     // Crucifix: a single carried, single-use item — no duplicates.
     if (name === 'Crucifix') {
       if (this._findSlot('Crucifix') >= 0) return; // already carrying one
@@ -242,6 +259,13 @@ export class Inventory {
       }
       this.flashlightOn = !this.flashlightOn;
       this._applyFlashlight();
+      this.sfx.lightSwitch();
+      return;
+    }
+
+    if (item.name === 'Candle') {
+      this.candleLit = !this.candleLit;
+      this._applyCandle();
       this.sfx.lightSwitch();
       return;
     }
@@ -305,6 +329,7 @@ export class Inventory {
       this.slots[fi].meter = this.flashlightBattery / CFG.items.flashlightBattery;
     }
     this._applyFlashlight(dt);
+    this._applyCandle();
 
     this.renderHotbar();
   }
@@ -317,6 +342,28 @@ export class Inventory {
   consumeCrucifix() {
     const i = this._findSlot('Crucifix');
     if (i >= 0) this.slots[i] = null;
+  }
+
+  // true if the player is carrying any *lit* light — Screech checks this
+  hasLitLight() {
+    return (this.flashlightOn && this.flashlightBattery > 0) || this.candleLit;
+  }
+
+  // ---- candle glow --------------------------------------------------
+  getCandleLight() {
+    if (!this._candleLight) {
+      // small warm omnidirectional halo (color, intensity, distance, decay)
+      this._candleLight = new THREE.PointLight(0xffc07a, 0, 15, 1.7);
+    }
+    return this._candleLight;
+  }
+
+  _applyCandle() {
+    if (!this._candleLight) return;
+    // soft flame waver whenever lit
+    const waver = this.candleLit ? 1 + Math.sin(performance.now() / 90) * 0.12 : 0;
+    this._candleLight.intensity = CANDLE_INTENSITY * waver;
+    this._candleLight.visible = this.candleLit;
   }
 
   // ---- flashlight spotlight ---------------------------------------
@@ -365,7 +412,9 @@ export class Inventory {
     this.selected = 0;
     this.flashlightOn = false;
     this.flashlightBattery = 0;
+    this.candleLit = false;
     this._applyFlashlight(); // turns the spotlight off if it exists
+    this._applyCandle();
   }
 
   // ---- shop / lobby pedestals -------------------------------------
@@ -376,7 +425,7 @@ export class Inventory {
     const prices = isShop ? CFG.shopGold : CFG.lobbyKnobs;
     const currencyLabel = isShop ? 'gold' : 'knobs';
 
-    const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix', 'bandage', 'battery'];
+    const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix', 'bandage', 'battery', 'candle'];
     const interactables = [];
 
     // shared geometry across the (few) pedestals in this room

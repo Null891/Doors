@@ -75,6 +75,11 @@ flashLight.position.set(0, 0, 0);
 camera.add(flashLight);
 flashLight.target.position.set(0, 0, -1);
 camera.add(flashLight.target);
+// candle: an omnidirectional halo held slightly low and forward, like a
+// hand carrying it at chest height
+const candleLight = inventory.getCandleLight();
+candleLight.position.set(0.35, -0.6, -0.7);
+camera.add(candleLight);
 
 let ambienceHandle = null;
 let heartbeatHandle = null;

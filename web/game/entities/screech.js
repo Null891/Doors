@@ -35,8 +35,8 @@ export class Screech {
     this._roomTimer += dt;
     if (this._roomTimer >= CFG.screech.rollEvery) {
       this._roomTimer = 0;
-      const litFlashlight = !!(ctx.inventory && ctx.inventory.flashlightOn && ctx.inventory.flashlightBattery > 0);
-      const rollChance = litFlashlight ? CFG.screech.chance * FLASHLIGHT_CHANCE_MULT : CFG.screech.chance;
+      const lit = !!(ctx.inventory && ctx.inventory.hasLitLight?.());
+      const rollChance = lit ? CFG.screech.chance * FLASHLIGHT_CHANCE_MULT : CFG.screech.chance;
       if (this._cooldown <= 0 && chance(rollChance)) this._trigger(ctx);
     }
   }
