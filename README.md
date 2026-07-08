@@ -37,7 +37,7 @@ server required (see [the save-code system](#save-codes--persistence)).
 | Doors & locks | Numbered doors, ~16% locked with a key hidden in the room, lockpicks as a fallback |
 | Hiding | Closets you walk into and hide inside; camp past ~4.5s and a warning fires, past ~5.5s you're forced out and hurt, and you can't hide again for ~12.5s after |
 | **Rush** | Every lamp in every loaded room flickers, then a black shape sweeps the whole loaded stretch at 46 u/s, shattering lights as it enters each room, killing anyone not hidden |
-| **Ambush** | Faster, spares the lights, rebounds back and forth 2–4 times — you have to keep re-hiding for every pass |
+| **Ambush** | Faster, warns by sound alone (no pre-charge light flicker — that tell belongs to Rush), shatters lights as it tears through, and rebounds back and forth 2–4 times — you have to keep re-hiding for every pass |
 | **Screech** | Spawns behind you in dark rooms with a "psst" — center it in your view within 2.5s or take a bite |
 | **Eyes** | A purple gaze parked mid-room; looking directly at it ticks damage, looking away is safe |
 | **Halt** | A corridor chase, not a "freeze" test: it starts *behind* you and periodically flips to be *in front*, flagged by a brief "TURN AROUND" flash — survival is constantly walking *away* from wherever it currently is, across several rounds, as it tightens the pace near the door (matching the real entity, which punishes standing still, not moving) |
@@ -45,7 +45,7 @@ server required (see [the save-code system](#save-codes--persistence)).
 | **Jack** | A rare closet jumpscare — hiding isn't always safe |
 | **Figure** | Activates at the library (Door 50) and roams persistently; uncrouched movement and interactions draw it in, contact is fatal, and it can sniff you out of a closet if you move |
 | **Seek** | A scripted chase sequence: eyes and grasping hands erupt and you sprint a twisting corridor, dodging swiping arms and debris — reaching the door ends it, getting caught is fatal |
-| **Timothy** | A tiny spider that leaps out when you rummage through certain drawers/loot — a pure startle that nicks a sliver of health, the game's one *friendly* scare |
+| **Timothy** | A tiny spider that occasionally leaps at your face as you slip into a closet — a pure startle that nicks a sliver of health (never lethal), the game's one *friendly* scare |
 | **Ambient scares** | Non-lethal atmosphere beats the director sprinkles between real hazards — lights cutting out, distant knocks and whispers, a shape crossing a far doorway — to keep tension up without a kill on the line |
 | **The Library (Door 50)** | Read the books (each shows a shape + digit), cross-reference the paper's Roman-numeral→shape key, enter the resulting 5-digit code on the padlock. Also where the Figure wakes up |
 | **The Circuit Breaker (Door 100)** | The final room's elevator is dead: collect all 10 switch pickups scattered around the electrical room, then solve a 3-round memory sequence at the locked panel to restore power before the lever will work. Round 3 hides one "mystery" switch you must deduce (the sum of that round's other flips). Only then does the escape elevator open |
