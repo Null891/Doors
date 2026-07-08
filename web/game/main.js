@@ -99,6 +99,7 @@ let guidingLight = null; // { group, glow, glowMat, light, pedestal, phase }
 // one-shot Guiding Light narration beats, re-armed each run
 let narratedSeek = false;
 let narratedDark = false;
+let reviveGraceUntil = 0; // brief invulnerability after a Starlight revive
 
 const ctx = { dt: 0, player, world, inventory, hud, input: Input, game: null };
 
@@ -228,6 +229,18 @@ function toggleHide(closet) {
 // ---------------------------------------------------------------------
 function killPlayer(cause) {
   if (player.dead || gameState !== 'playing') return;
+  if (performance.now() / 1000 < reviveGraceUntil) return;
+  // Starlight: one bought second chance — back up at half health with a
+  // short grace so the same contact can't instantly re-kill.
+  if (inventory.consumeRevive()) {
+    player.health = Math.max(player.health, CFG.player.health / 2);
+    reviveGraceUntil = performance.now() / 1000 + 2.5;
+    hud.damageFlash('rgba(255,240,180,1)');
+    hud.narrate('Not yet. Get up — RUN.');
+    Sfx.heal();
+    shake(1.2);
+    return;
+  }
   if (player.hiddenIn) {
     clearClosetTimers(player.hiddenIn);
     player.hiddenIn.occupied = false;
@@ -455,6 +468,7 @@ function startRun() {
   requestAnimationFrame(() => requestAnimationFrame(() => hud.fadeTo(0, 1.2)));
   narratedSeek = false;
   narratedDark = false;
+  reviveGraceUntil = 0;
   setTimeout(() => {
     if (gameState === 'playing') hud.narrate('One hundred doors. Keep moving — I will light what I can.');
   }, 1400);

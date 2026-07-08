@@ -142,7 +142,7 @@ export const CFG = {
     batteryRestore: 0.5, // fraction of a full flashlight charge per battery
   },
   shopGold: { flashlight: 100, lockpick: 150, vitamins: 75, crucifix: 300, bandage: 60, battery: 45, candle: 40 },
-  lobbyKnobs: { flashlight: 12, lockpick: 15, vitamins: 8, crucifix: 40, bandage: 7, battery: 5, candle: 4 },
+  lobbyKnobs: { flashlight: 12, lockpick: 15, vitamins: 8, crucifix: 40, bandage: 7, battery: 5, candle: 4, revive: 100 },
   economy: {
     goldPerKnob: 20,
     knobsPerTenDoors: 1,

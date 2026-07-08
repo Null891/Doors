@@ -26,6 +26,7 @@ const ITEM_META = {
   bandage:    { name: 'Bandage',    icon: '🩹' },
   battery:    { name: 'Battery',    icon: '🔋' },
   candle:     { name: 'Candle',     icon: '🕯️' },
+  revive:     { name: 'Starlight',  icon: '🌟' },
 };
 const ICON = {
   Flashlight: '🔦',
@@ -34,6 +35,7 @@ const ICON = {
   Bandage: '🩹',
   Battery: '🔋',
   Candle: '🕯️',
+  Starlight: '🌟',
 };
 
 // The candle's small warm halo — dim next to the flashlight beam, but it
@@ -212,12 +214,12 @@ export class Inventory {
       return;
     }
 
-    // Crucifix: a single carried, single-use item — no duplicates.
-    if (name === 'Crucifix') {
-      if (this._findSlot('Crucifix') >= 0) return; // already carrying one
+    // Crucifix / Starlight: single carried, single-use — no duplicates.
+    if (name === 'Crucifix' || name === 'Starlight') {
+      if (this._findSlot(name) >= 0) return; // already carrying one
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
-      this.slots[empty] = { name, icon: ICON.Crucifix, count: 1, meter: null };
+      this.slots[empty] = { name, icon: ICON[name], count: 1, meter: null };
       return;
     }
 
@@ -286,6 +288,12 @@ export class Inventory {
       return;
     }
 
+    if (item.name === 'Starlight') {
+      // passive: main.js's killPlayer checks consumeRevive() itself.
+      this.hud.toast('It will bring you back. Once.', '#e8cf7a');
+      return;
+    }
+
     if (item.name === 'Bandage') {
       if (this.player.health >= CFG.player.health) {
         this.hud.toast('Already at full health.', '#c33');
@@ -342,6 +350,14 @@ export class Inventory {
   consumeCrucifix() {
     const i = this._findSlot('Crucifix');
     if (i >= 0) this.slots[i] = null;
+  }
+
+  // ---- Starlight revive (called by main.js's killPlayer) -----------
+  consumeRevive() {
+    const i = this._findSlot('Starlight');
+    if (i < 0) return false;
+    this.slots[i] = null;
+    return true;
   }
 
   // true if the player is carrying any *lit* light — Screech checks this
@@ -426,6 +442,9 @@ export class Inventory {
     const currencyLabel = isShop ? 'gold' : 'knobs';
 
     const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix', 'bandage', 'battery', 'candle'];
+    // the Starlight revive is a lobby-exclusive premium (knobs only), like
+    // the real game's revives never being purchasable mid-run for gold
+    if (!isShop) keys.push('revive');
     const interactables = [];
 
     // shared geometry across the (few) pedestals in this room
