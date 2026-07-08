@@ -30,8 +30,9 @@ const CLOSET_OPEN_ANGLE = -2.05;
 // placed in the same wall slots closets use, capped independently so rooms
 // don't get overcrowded.
 const MAX_FURNITURE = 2;
-const FURNITURE_CHANCE = 0.32;
-const FURNITURE_KINDS = ['couch', 'table', 'shelf'];
+// weighted toward the searchable dresser so most rooms hold something to loot
+const FURNITURE_CHANCE = 0.5;
+const FURNITURE_KINDS = ['dresser', 'dresser', 'dresser', 'couch', 'table', 'shelf'];
 
 export { GAP };
 
@@ -451,14 +452,20 @@ function buildCloset(b, group, frame, localX, localZ, wallSide, room) {
 // localX is wall-flush (±W/2), matching the slot convention closets use;
 // `side` is the wall side (-1 left, 1 right) and `inward` points from the
 // wall into the room, same convention as buildCloset().
-function buildFurniture(b, group, frame, localX, localZ, side, kind) {
+function buildFurniture(b, group, frame, localX, localZ, side, kind, room) {
   const inward = -side;
+  // solid furniture gets a collider so the player can't walk through it; all
+  // pieces sit flush to a side wall and extend inward, clear of the center path
+  const addCol = (cx, cz, sx, sz, h) => {
+    room.colliders.push(footprintAabb(frame, cx - sx / 2, cx + sx / 2, cz - sz / 2, cz + sz / 2, 0, h));
+  };
   if (kind === 'couch') {
     const width = 5.0;
     b.box(localX + inward * 0.25, localZ, 0.5, width, 1.5, 3.0, Mats.upholstery);        // backrest
     b.box(localX + inward * 1.4, localZ, 1.8, width - 0.8, 0.65, 1.3, Mats.upholstery);  // seat cushion
     b.box(localX + inward * 1.15, localZ - width / 2 + 0.3, 2.3, 0.6, 0.9, 1.8, Mats.darkWood); // armrest
     b.box(localX + inward * 1.15, localZ + width / 2 - 0.3, 2.3, 0.6, 0.9, 1.8, Mats.darkWood); // armrest
+    addCol(localX + inward * 1.0, localZ, 2.6, width, 2.2);
   } else if (kind === 'table') {
     b.box(localX + inward * 1.0, localZ, 0.6, 0.6, 1.0, 2.0, Mats.darkWood);   // pedestal leg
     b.box(localX + inward * 1.0, localZ, 1.4, 1.4, 2.05, 0.15, Mats.darkWood); // tabletop
@@ -468,7 +475,8 @@ function buildFurniture(b, group, frame, localX, localZ, side, kind) {
     mesh.position.set(p.x, 2.92, p.z); // small gold ornament resting on the tabletop
     b.geos.push(geo);
     group.add(mesh);
-  } else { // shelf — reuses the library's bookshelf texture on a standalone carcass
+    addCol(localX + inward * 1.0, localZ, 1.6, 1.6, 2.1);
+  } else if (kind === 'shelf') { // reuses the library's bookshelf texture
     const width = 3.0;
     b.box(localX + inward * 0.6, localZ, 1.2, width, 2.5, 5.0, Mats.darkWood); // carcass
     const shelfMat = Mats.shelf(1, 2);
@@ -480,6 +488,61 @@ function buildFurniture(b, group, frame, localX, localZ, side, kind) {
     mesh.rotation.y = meshYaw(frame) + (side === -1 ? Math.PI / 2 : -Math.PI / 2);
     b.geos.push(faceGeo);
     group.add(mesh);
+    addCol(localX + inward * 0.6, localZ, 1.4, width, 5.0);
+  } else { // dresser — a SEARCHABLE container (the DOORS loot loop)
+    const width = 4.2;
+    b.box(localX + inward * 0.7, localZ, 1.5, width, 1.9, 3.8, Mats.darkWood); // body
+    for (let r = 0; r < 3; r++) {
+      const y = 0.9 + r * 1.05;
+      b.box(localX + inward * 1.42, localZ, 0.12, width - 0.5, y, 0.9, Mats.frame); // drawer face
+      const hg = new THREE.BoxGeometry(0.14, 0.14, 0.7);
+      const hm = new THREE.Mesh(hg, Mats.gold);
+      const hp = toWorld(frame, localX + inward * 1.55, localZ);
+      hm.position.set(hp.x, y, hp.z);
+      b.geos.push(hg);
+      group.add(hm);
+    }
+    addCol(localX + inward * 0.7, localZ, 1.6, width, 3.8);
+
+    const sp = toWorld(frame, localX + inward * 1.6, localZ);
+    let searched = false;
+    room.interactables.push({
+      pos: { x: sp.x, y: 2, z: sp.z }, range: 4,
+      getLabel: () => searched ? null : 'Search the drawers',
+      interact: (ctx) => {
+        if (searched) return;
+        searched = true;
+        ctx.game.onFootstep?.(false); // rummaging is noisy — the Figure can hear it
+        const roll = Math.random();
+        if (roll < 0.10) { // Timothy springs out (rare)
+          ctx.hud.scare('timothy');
+          Sfx.timothyScreech();
+          ctx.game.shake(1.0);
+          ctx.game.notify('Timothy!', '#9dff5a');
+          const dmg = Math.min(4, Math.max(0, ctx.player.health - 1));
+          if (dmg > 0) ctx.player.damage(dmg);
+        } else if (roll < 0.34) { // an item
+          const item = choice(['Bandage', 'Battery', 'Vitamins']);
+          if (ctx.inventory.canAccept(item)) {
+            ctx.inventory.giveItem(item);
+            Sfx.goldPickup();
+            ctx.game.notify(`Found a ${item}!`, '#7ed07e');
+          } else {
+            const g = randInt(8, 25);
+            ctx.inventory.addGold(g);
+            Sfx.goldPickup();
+            ctx.game.notify(`+${g} gold`, '#d4af37');
+          }
+        } else if (roll < 0.82) { // gold
+          const g = randInt(10, 40);
+          ctx.inventory.addGold(g);
+          Sfx.goldPickup();
+          ctx.game.notify(`+${g} gold`, '#d4af37');
+        } else {
+          ctx.game.notify('Empty. Just dust.', '#9c8c72');
+        }
+      },
+    });
   }
 }
 
@@ -675,6 +738,7 @@ export function buildRoom(frame, opts) {
 
     // Jeff: taller, grey-mauve, behind a small counter near the far end
     b.box(0, length - 8.2, 6.2, 1.8, 1.5, 3.0, Mats.darkWood);       // counter
+    room.colliders.push(footprintAabb(frame, -3.1, 3.1, length - 9.1, length - 7.3, 0, 3));
     b.box(0, length - 8.2, 6.6, 2.1, 3.02, 0.14, Mats.brass);        // countertop trim
     buildNpc(0, length - 10.2, 0x8a7f8f, 0xf2ecd8, 1.25, Math.PI);
     const jeffBarks = [
@@ -798,7 +862,7 @@ export function buildRoom(frame, opts) {
       }
       if (allowFurniture && placedFurniture < MAX_FURNITURE && chance(FURNITURE_CHANCE)) {
         placedFurniture++;
-        buildFurniture(b, group, frame, localX, slot.z, slot.side, choice(FURNITURE_KINDS));
+        buildFurniture(b, group, frame, localX, slot.z, slot.side, choice(FURNITURE_KINDS), room);
       }
     }
   }
@@ -1060,6 +1124,7 @@ export function buildRoom(frame, opts) {
     const deskZ = 6;
     b.box(deskX, deskZ, 5.4, 2.2, 1.3, 2.6, Mats.darkWood);  // counter body
     b.box(deskX, deskZ, 5.7, 2.5, 2.62, 0.16, Mats.brass);   // brass-trimmed countertop
+    room.colliders.push(footprintAabb(frame, deskX - 2.85, deskX + 2.85, deskZ - 1.25, deskZ + 1.25, 0, 3));
 
     const bellGeo = new THREE.SphereGeometry(0.22, 10, 8);
     const bellMesh = new THREE.Mesh(bellGeo, Mats.gold);
