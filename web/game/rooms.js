@@ -195,11 +195,19 @@ function buildSideWall(b, localX, zSpan, H, gap, material, colliders, frame, sid
 }
 
 // ---- lamps -------------------------------------------------------------
+// A shattered bulb keeps a faint cool "emergency" gloom rather than going to
+// pure black — when Rush/Ambush break every lamp in the loaded rooms it must
+// stay dark and frightening but still navigable enough to reach a closet.
+const BROKEN_INT = LAMP_BASE_INT * 0.16;
 export function breakLamp(lampRec) {
   if (lampRec.broken) return;
   lampRec.broken = true;
   if (lampRec.mesh) lampRec.mesh.material = Mats.bulbBroken;
-  if (lampRec.light) lampRec.light.intensity = 0;
+  if (lampRec.light) {
+    lampRec.light.color.setHex(0x5a6488);
+    lampRec.light.distance = 44;
+    lampRec.light.intensity = BROKEN_INT;
+  }
 }
 
 // A hanging chandelier — the hotel's grand-hall centerpiece. Chain + tiered

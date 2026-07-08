@@ -46,8 +46,8 @@ renderer.toneMappingExposure = 1.05;
 // Kept low on purpose: DOORS rooms read moody and dim, lit mostly by their
 // own lamps/flashlight rather than a bright global fill. (Still well above
 // the near-zero values that once rendered everything black.)
-scene.add(new THREE.AmbientLight(0x272119, 2.5));
-scene.add(new THREE.HemisphereLight(0x262013, 0x0a0808, 1.2));
+scene.add(new THREE.AmbientLight(0x2a2419, 2.85));
+scene.add(new THREE.HemisphereLight(0x2a2216, 0x0c0a09, 1.35));
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

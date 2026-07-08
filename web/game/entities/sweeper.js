@@ -117,7 +117,9 @@ export class Sweeper {
   _applyFlicker(on) {
     for (const l of this._lamps) {
       if (l.rec.broken) continue;
-      if (l.rec.light) l.rec.light.intensity = on ? l.origInt : 0;
+      // the "off" flicker frame dims to a fraction rather than pure black, so
+      // the warning reads as failing lights without blinding the player
+      if (l.rec.light) l.rec.light.intensity = on ? l.origInt : l.origInt * 0.14;
       if (l.rec.mesh) l.rec.mesh.material = on ? l.origMat : Mats.bulbOff;
     }
   }
