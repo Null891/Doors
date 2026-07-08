@@ -87,8 +87,8 @@ hard-won lessons from real bugs in this codebase.**
 - `game?.onFootstep?.(crouched)` is called by player.js but main.js never
   defines `onFootstep` — harmless no-op today (Figure hears via proximity
   polling); wiring it would let Figure react to *discrete* steps.
-- No heartbeat audio loop (HUD has the visual); an audio `heartbeat()` handle
-  rising with danger/low HP was planned.
+- ~~No heartbeat audio loop~~ DONE (commit b7f768e): `Sfx.heartbeat()` handle,
+  driven by hunts/dark rooms/low HP in main.js, silent outside play.
 - README was refreshed but does not yet document Seek/Timothy/ambient/sprint.
 
 ---
@@ -103,16 +103,17 @@ hard-won lessons from real bugs in this codebase.**
    state with a listening pause + head-turn, gradual give-up, escalating
    awareness; growl/breath proximity audio; keep `activate/onInteractionNoise/
    onBookRead/update/reset` API identical (library.js depends on it).
-3. **Wire `onFootstep`**: main.js `gameApi.onFootstep = (crouched) => ...`
-   feeding director→figure discrete noise events (crouched steps silent,
-   sprint steps louder/longer radius), and pass surface (`room.isGreenhouse ?
-   'stone' : carpeted ? 'carpet' : 'wood'`) through to `Sfx.step`.
+3. ~~Wire `onFootstep`~~ **DONE** (commit d3190b8): uncrouched steps ping the
+   Figure within `hearWalk`; sprinting carries 1.7x farther; crouched silent.
+   Remaining sub-item: pass surface (`room.isGreenhouse ? 'stone' : carpeted ?
+   'carpet' : 'wood'`) through to `Sfx.step` (param exists, unused).
 4. **Death → spectate beat**: real DOORS shows a brief entity-specific death
    cam/quote before the stats screen. Add a 1.5s black beat with the entity's
-   scare face + a whispered quote before `showDeath`.
-5. **Elevator win sequence**: real DOORS ends with the elevator ride + music.
-   Currently `showWin` is instant. Add doors-close animation + rising rumble +
-   a beat before the stats.
+   scare face + a whispered quote before `showDeath`. (There is already a
+   0.9s scare-face beat in `killPlayer` — extend it, don't stack another.)
+5. ~~Elevator win sequence~~ **DONE** (commit b7f768e): lever → caption, door
+   slam, fade-to-black under shake, then stats fade in. Could still add a
+   proper win fanfare melody (see #25).
 
 ## PRIORITY 2 — Missing DOORS content (most-requested authenticity)
 
@@ -167,8 +168,7 @@ hard-won lessons from real bugs in this codebase.**
 
 ## PRIORITY 5 — Audio & narrative seasoning
 
-22. **Heartbeat loop** (`Sfx.heartbeat()` returning a handle; rate/gain rise
-    with `setDanger` level and low HP).
+22. ~~Heartbeat loop~~ **DONE** (commit b7f768e).
 23. **Guiding Light / Curious Light narration**: real DOORS shows soft
     letter-by-letter guidance text after deaths and at set pieces. Add a
     `hud.narrate(text)` letter-reveal caption in the Guiding Light gold, used
