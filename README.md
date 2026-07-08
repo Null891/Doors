@@ -21,7 +21,12 @@ Open the printed URL. Click **ENTER THE HOTEL**, click once on the canvas to
 lock the mouse, and go.
 
 **Controls:** `WASD` move · mouse look · `E` interact · `C`/`Ctrl` crouch ·
-`1–5` select item · `F` use selected item · `Esc` pause.
+`1–6` select hotbar item · `F` use selected item · `Esc` pause.
+
+Progress (knobs + deepest door reached) is saved to `localStorage` automatically,
+and the menu also shows a **portable save code** — copy it to carry your progress
+to another browser or machine, or paste one in to restore it. No account or
+server required (see [the save-code system](#save-codes--persistence)).
 
 ## What's in the game
 
@@ -35,14 +40,32 @@ lock the mouse, and go.
 | **Ambush** | Faster, spares the lights, rebounds back and forth 2–4 times — you have to keep re-hiding for every pass |
 | **Screech** | Spawns behind you in dark rooms with a "psst" — center it in your view within 2.5s or take a bite |
 | **Eyes** | A purple gaze parked mid-room; looking directly at it ticks damage, looking away is safe |
-| **Halt** | A huge "STOP" warning — any movement or camera turn during the window is a hit |
+| **Halt** | A corridor chase, not a "freeze" test: it starts *behind* you and periodically flips to be *in front*, flagged by a brief "TURN AROUND" flash — survival is constantly walking *away* from wherever it currently is, across several rounds, as it tightens the pace near the door (matching the real entity, which punishes standing still, not moving) |
 | **Dupe** | Fake exit doors with scrambled numbers on side walls — walk into one and it bites |
 | **Jack** | A rare closet jumpscare — hiding isn't always safe |
 | **Figure** | Activates at the library (Door 50) and roams persistently; uncrouched movement and interactions draw it in, contact is fatal, and it can sniff you out of a closet if you move |
-| **The Library (Door 50)** | Read all the books, cross-reference the paper's numeral→shape key, enter the 5-digit code on the padlock |
-| Items & economy | Flashlight (battery drain), Vitamins (speed boost), Crucifix (banishes Rush/Ambush on contact), Lockpicks, gold piles, Jeff's Shop at Door 52 (safe room), gold→knobs conversion on death/escape (20:1, rounds up), knobs persisted via `localStorage` |
+| **Seek** | A scripted chase sequence: eyes and grasping hands erupt and you sprint a twisting corridor, dodging swiping arms and debris — reaching the door ends it, getting caught is fatal |
+| **Timothy** | A tiny spider that leaps out when you rummage through certain drawers/loot — a pure startle that nicks a sliver of health, the game's one *friendly* scare |
+| **Ambient scares** | Non-lethal atmosphere beats the director sprinkles between real hazards — lights cutting out, distant knocks and whispers, a shape crossing a far doorway — to keep tension up without a kill on the line |
+| **The Library (Door 50)** | Read the books (each shows a shape + digit), cross-reference the paper's Roman-numeral→shape key, enter the resulting 5-digit code on the padlock. Also where the Figure wakes up |
+| **The Circuit Breaker (Door 100)** | The final room's elevator is dead: collect all 10 switch pickups scattered around the electrical room, then solve a 3-round memory sequence at the locked panel to restore power before the lever will work. Round 3 hides one "mystery" switch you must deduce (the sum of that round's other flips). Only then does the escape elevator open |
+| Items & economy | Flashlight (battery drain), Vitamins (speed boost), Crucifix (single-use, auto-banishes Rush/Ambush on contact), Bandage (heal), Battery (recharge the flashlight), passive Lockpicks (fallback for locked doors), gold piles, Jeff's Shop at Door 52 (safe room), gold→knobs conversion on death/escape (20:1, rounds up), knobs persisted via `localStorage` |
 | Audio | 100% synthesized at runtime via Web Audio — no audio files. A shared reverb bus for spatial depth, Rush/Ambush crossfade between a muffled "far" layer and a distorted "near" layer as they approach (mirroring the real game's two-recording technique), Ambush's scream uses a Shepard tone (the auditory illusion of endlessly rising pitch), jumpscares layer a sub-bass hit + distorted scream sweep + static + rumble tail, and the ambient drone gets more dissonant in dark/dangerous rooms |
 | Menu | A live, slow-panning 3D shot of the actual lobby (starting on the elevator, then dollying down the hallway) behind a blurred veil, with staggered entrance animations — not a static screen |
+
+## Save codes & persistence
+
+There is no backend, so progress lives in the browser's `localStorage` under
+`hundredDoors.knobs` and `hundredDoors.bestDoor` (your knob balance and the
+deepest door you've reached). Everything else — gold, keys, carried items,
+flashlight charge — is run-scoped and wiped when a run resets.
+
+To move progress between browsers or machines without an account, the pause/main
+menu shows a **portable save code** of the form `DOORS-XXXX-<base64>`: the base64
+payload is a tiny JSON blob (`{v,k,d}` = version, knobs, best door) and `XXXX`
+is a checksum over it, so a typo or a cut-off paste is caught on import instead
+of silently corrupting your save. Copy it out, or paste one into the import box
+to restore — knobs and best-door are updated and re-persisted immediately.
 
 ## Deploying to Vercel
 
@@ -63,7 +86,7 @@ directly by the browser (`<script type="module">`, no bundler):
 - **`textures.js`** — every material is a `<canvas>`-painted texture baked once at boot; `Mats.*` factories create per-room materials (must be disposed with the room), a handful of `Mats.*` constants are shared forever. Materials are `MeshStandardMaterial` (per-pixel lit) rather than `MeshLambertMaterial` (per-vertex/Gouraud) — on a large unsubdivided box face, Lambert's vertex-only lighting creates a visible hard seam along the diagonal between the face's two triangles wherever a point light sits mid-face. Also worth knowing if you touch lighting: Three.js r155+ defaults to physically-correct falloff (`decay=2`), where intensity is candela-scale — old "intensity: 1-2" values render as near-total darkness. See the tuned values in `rooms.js`'s `LAMP_BASE_INT`, `items.js`'s `FLASH_ON_INTENSITY`, and `main.js`'s scene lights.
 - **`audio.js`** — `Sfx`, a fully synthesized sound engine (oscillators + filtered white noise, no audio files)
 - **`input.js`**, **`player.js`**, **`hud.js`** — pointer-lock FPS controller, collision (cylinder-vs-AABB), and the entire UI (built as DOM, not canvas)
-- **`rooms.js`** — builds one room's geometry from a `Frame` + options; every interactable it creates just forwards to `ctx.game.*` — it has no idea what a lock or gold pile *means*, only how to describe one and report the event
+- **`rooms.js`** — builds one room's geometry from a `Frame` + options; every interactable it creates just forwards to `ctx.game.*` — it has no idea what a lock or gold pile *means*, only how to describe one and report the event. Its `box(cx, cz, sx, sz, cy, sy, material, castShadow)` helper places a box with a deliberately floor-plan-friendly argument order — the two horizontal axes (center `x,z`, then size `x,z`) come *before* the vertical (center `y`, then height `y`), because rooms are authored as 2D layouts extruded upward; get the interleaving wrong and geometry silently lands in the wrong place
 - **`world.js`** — the room sequence: generation, weighted templates with overlap-safe re-rolling, the three special rooms (Door 50 library / Door 52 shop / Door 100 elevator), culling
 - **`entities/`** — one file per hazard (`sweeper.js` handles both Rush and Ambush), `director.js` rolls the spawn table on every door opened and ticks whichever entities are live
 - **`items.js`** — inventory, hotbar, shop pedestals, the economy
@@ -78,10 +101,12 @@ know about each other's internals.
 - **Single-player.** The original Roblox version supports multiplayer via
   Roblox's networking; a static Vercel deploy has no realtime backend, so
   this is a deliberate scope cut, not an oversight.
-- Not yet implemented: Seek (Door 200 boss), a second floor (The Mines), and
-  the modifier system from the Roblox version's design doc. `entities/`
-  follows a uniform `update(dt, ctx)` state-machine pattern, so adding a new
-  hazard is mostly "write one more file and register it in `director.js`."
+- Not yet implemented: a second floor (The Mines / Door 200+ content) and the
+  modifier system from the Roblox version's design doc. `entities/` follows a
+  uniform `update(dt, ctx)` state-machine pattern with the spawn table rolled
+  in `director.js`, so adding a new hazard is mostly "write one more file and
+  register it there" — which is exactly how the roster has kept growing
+  (Rush, Ambush, Screech, Eyes, Halt, Figure, Dupe, Jack, Seek, Timothy).
 - Sound is synthesized, not sampled — it's intentionally simple (this was a
   design choice to ship with zero asset dependencies, not a placeholder).
 

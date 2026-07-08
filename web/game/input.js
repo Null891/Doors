@@ -5,7 +5,6 @@ export const Input = {
   presses: new Set(), // keys pressed since last endFrame()
   mouseDX: 0,
   mouseDY: 0,
-  totalMouse: 0, // accumulated |movement| — the Figure's sniff check reads this
   locked: false,
   wheelDelta: 0,
   _canvas: null,
@@ -27,7 +26,6 @@ export const Input = {
       if (!this.locked) return;
       this.mouseDX += e.movementX;
       this.mouseDY += e.movementY;
-      this.totalMouse += Math.abs(e.movementX) + Math.abs(e.movementY);
     });
 
     window.addEventListener('wheel', (e) => {

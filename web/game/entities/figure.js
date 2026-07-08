@@ -42,11 +42,48 @@ export class Figure {
     ctx.game?.caption?.('Something else is down here...');
   }
 
+  // A tall, gaunt, faceless silhouette with long arms reaching past the
+  // knees — the group's own position/rotation drives movement exactly like
+  // a single mesh would, so the rest of the file doesn't need to change.
   _buildMesh(scene) {
-    const geo = new THREE.CapsuleGeometry(1.05, 5.2, 4, 8);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x0b0705 });
-    this.mesh = new THREE.Mesh(geo, mat);
-    scene.add(this.mesh);
+    const group = new THREE.Group();
+    this._geos = [];
+    this._mats = [];
+    const mat = new THREE.MeshBasicMaterial({ color: 0x0a0705 });
+    this._mats.push(mat);
+
+    const torsoGeo = new THREE.CapsuleGeometry(0.6, 4.2, 4, 8);
+    const torso = new THREE.Mesh(torsoGeo, mat);
+    torso.position.y = 2.8;
+    group.add(torso);
+    this._geos.push(torsoGeo);
+
+    const headGeo = new THREE.SphereGeometry(0.5, 10, 8);
+    const head = new THREE.Mesh(headGeo, mat);
+    head.position.set(0, 5.35, 0.1);
+    group.add(head);
+    this._geos.push(headGeo);
+
+    const armGeo = new THREE.CapsuleGeometry(0.13, 3.7, 4, 6);
+    this._armL = new THREE.Mesh(armGeo, mat);
+    this._armR = new THREE.Mesh(armGeo, mat);
+    this._armL.position.set(-0.82, 2.55, 0);
+    this._armR.position.set(0.82, 2.55, 0);
+    group.add(this._armL, this._armR);
+    this._geos.push(armGeo);
+
+    this.mesh = group;
+    this._animPhase = rand(0, Math.PI * 2);
+    scene.add(group);
+  }
+
+  // Idle sway while patrolling, a sharper forward lean while chasing — the
+  // "actions" reading distinctly different at a glance, not just faster.
+  _animate(dt, chasing) {
+    this._animPhase += dt * (chasing ? 5.5 : 1.6);
+    const swing = Math.sin(this._animPhase) * (chasing ? 0.55 : 0.22);
+    if (this._armL) { this._armL.rotation.x = swing; this._armR.rotation.x = -swing; }
+    this.mesh.rotation.x = chasing ? 0.12 : 0;
   }
 
   onInteractionNoise(pos) {
@@ -66,8 +103,8 @@ export class Figure {
   reset() {
     if (this.mesh) {
       if (this.mesh.parent) this.mesh.parent.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      this.mesh.material.dispose();
+      for (const g of this._geos || []) g.dispose();
+      for (const m of this._mats || []) m.dispose();
       this.mesh = null;
     }
     this._activated = false;
@@ -184,6 +221,7 @@ export class Figure {
     if (!this._targetPos || !this.mesh) return;
     const now = performance.now() / 1000;
     const chasing = now < this._chaseUntil;
+    this._animate(dt, chasing);
     const speed = (chasing ? CFG.figure.chaseSpeed : CFG.figure.patrolSpeed) * this._speedMult;
     const dx = this._targetPos.x - this.mesh.position.x;
     const dz = this._targetPos.z - this.mesh.position.z;

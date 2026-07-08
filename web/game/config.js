@@ -115,8 +115,21 @@ export const CFG = {
     killDist: 3.4,
     books: 5,
     sniffTime: 4,        // stays at your closet this long
-    mouseTolerance: 260, // accumulated mouse movement that gets you caught
     speedPerBook: 0.5,
+  },
+
+  // Door 100's Circuit Breaker puzzle: collect switchCount switches
+  // scattered around the electrical room, then solve a 3-round memory
+  // sequence at the locked panel to restore power before the elevator
+  // lever will work. Each round shows which switches should be ON for
+  // `memorizeTime` seconds, then you toggle them from memory. Round 3's
+  // final switch is a "mystery" — deduce it as the sum of that round's
+  // other flipped switches (skip it if the sum is >10 or already used).
+  electrical: {
+    switchCount: 10,
+    roundOnCounts: [3, 4, 4],   // how many switches are ON, per round
+    memorizeTime: [6, 4.5, 3.5],
+    inputTime: [14, 12, 12],
   },
 
   // ---- items / economy -------------------------------------------
@@ -125,9 +138,11 @@ export const CFG = {
     vitaminsBoost: 8,
     vitaminsTime: 15,
     crucifixRange: 13,
+    bandageHeal: 40,
+    batteryRestore: 0.5, // fraction of a full flashlight charge per battery
   },
-  shopGold: { flashlight: 100, lockpick: 150, vitamins: 75, crucifix: 300 },
-  lobbyKnobs: { flashlight: 12, lockpick: 15, vitamins: 8, crucifix: 40 },
+  shopGold: { flashlight: 100, lockpick: 150, vitamins: 75, crucifix: 300, bandage: 60, battery: 45 },
+  lobbyKnobs: { flashlight: 12, lockpick: 15, vitamins: 8, crucifix: 40, bandage: 7, battery: 5 },
   economy: {
     goldPerKnob: 20,
     knobsPerTenDoors: 1,

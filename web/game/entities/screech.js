@@ -8,6 +8,11 @@ import { rand, chance } from '../utils.js';
 import { Sfx } from '../audio.js';
 import { sceneFromCtx } from './sceneUtil.js';
 
+// Per the wiki, carrying a lit flashlight "lowers the chance of Screech
+// attacking in a dark room" — it doesn't make dark rooms safe outright,
+// just less likely to roll an attempt.
+const FLASHLIGHT_CHANCE_MULT = 0.45;
+
 export class Screech {
   constructor() {
     this._active = false;
@@ -30,7 +35,9 @@ export class Screech {
     this._roomTimer += dt;
     if (this._roomTimer >= CFG.screech.rollEvery) {
       this._roomTimer = 0;
-      if (this._cooldown <= 0 && chance(CFG.screech.chance)) this._trigger(ctx);
+      const litFlashlight = !!(ctx.inventory && ctx.inventory.flashlightOn && ctx.inventory.flashlightBattery > 0);
+      const rollChance = litFlashlight ? CFG.screech.chance * FLASHLIGHT_CHANCE_MULT : CFG.screech.chance;
+      if (this._cooldown <= 0 && chance(rollChance)) this._trigger(ctx);
     }
   }
 
@@ -60,10 +67,28 @@ export class Screech {
     ctx.game.caption('...');
   }
 
+  // A hunched, asymmetric dark mass with a single narrow glowing eye-slit —
+  // built once and reused for the process lifetime (never disposed), so a
+  // Group here is safe without adding new cleanup responsibility.
   _buildMesh() {
-    const geo = new THREE.SphereGeometry(1.1, 10, 8);
+    const group = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
-    this.mesh = new THREE.Mesh(geo, mat);
+    const bodyGeo = new THREE.SphereGeometry(1.0, 10, 8);
+    const body = new THREE.Mesh(bodyGeo, mat);
+    body.scale.set(1, 1.25, 0.85);
+    body.position.y = -0.1;
+    group.add(body);
+    const humpGeo = new THREE.SphereGeometry(0.55, 8, 6);
+    const hump = new THREE.Mesh(humpGeo, mat);
+    hump.position.set(0.25, 0.55, -0.2);
+    group.add(hump);
+    const eyeGeo = new THREE.SphereGeometry(0.16, 8, 6);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xd8302a });
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.scale.set(1.6, 0.6, 0.6);
+    eye.position.set(0, 0.15, 0.85);
+    group.add(eye);
+    this.mesh = group;
   }
 
   _tickAttack(dt, ctx) {

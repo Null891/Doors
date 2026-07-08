@@ -17,6 +17,7 @@ import { Director } from './entities/director.js';
 import { Inventory } from './items.js';
 import { setDoorOpen, setRoomLightsOn } from './rooms.js';
 import { maybeTriggerJack } from './entities/jack.js';
+import { maybeTriggerTimothy } from './entities/timothy.js';
 
 const DEBUG = /[?&]debug/.test(location.search);
 
@@ -27,7 +28,8 @@ const canvas = document.getElementById('game-canvas');
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x08060a, 8, CFG.fogNormal);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+const BASE_FOV = 70;
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 500);
 scene.add(camera); // required: lights parented to the camera (the flashlight) only illuminate if the camera itself is in the scene graph
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -80,7 +82,14 @@ function shake(amount) { shakeAmp = Math.max(shakeAmp, amount); }
 
 let gameState = 'menu'; // 'menu' | 'playing' | 'paused' | 'dead' | 'won'
 let won = false;
+let powerRestored = false; // Door 100's circuit breaker puzzle gates the lever
 const closetTimers = new Map(); // closet -> { warn, force }
+
+// "Guiding Light" — real DOORS nudges a stuck player toward the key after
+// lingering too long in a locked room. CFG.guidingLightDelay already existed
+// as a tunable but nothing ever consumed it; this wires it up.
+let stuckTimer = 0;
+let guidingLight = null; // { group, glow, glowMat, light, pedestal, phase }
 
 const ctx = { dt: 0, player, world, inventory, hud, input: Input, game: null };
 
@@ -90,18 +99,20 @@ const ctx = { dt: 0, player, world, inventory, hud, input: Input, game: null };
 const CAUSE_TO_SCARE = {
   Rush: 'rush', Ambush: 'ambush', Screech: 'screech', Eyes: 'eyes',
   Figure: 'figure', Halt: 'halt', Dupe: 'dupe', Jack: 'jack', Hide: 'hide', Void: 'eyes',
+  Seek: 'seek', Timothy: 'timothy',
 };
 const DEATH_TIPS = {
   Rush: 'When the lights flicker, get in a closet — fast.',
   Ambush: 'It comes back. Leave the closet, then hide again for every pass.',
   Screech: 'In dark rooms, listen for the whisper and look right at it.',
   Eyes: 'Do not look at it. Watch the floor and walk past.',
-  Halt: 'When it says STOP, freeze completely — no moving, no looking.',
+  Halt: "Keep walking away from it. When it flashes TURN AROUND, reverse — don't stop, don't turn toward it.",
   Dupe: 'Track the real door number. A false door rumbles as you approach.',
   Jack: "Closets aren't always safe.",
   Figure: 'Crouch to move silently. If it finds your closet, stay dead still.',
   Hide: "Don't overstay in a closet — get out before something makes you.",
   Void: "Don't fall behind.",
+  Seek: 'RUN. Sprint forward through every door — never stop, never double back.',
 };
 
 function computeKnobs(gold, bonus = 0) {
@@ -164,6 +175,7 @@ function enterCloset(closet) {
 
   const room = world.getRoomAt(closet.hidePos.x, 1, closet.hidePos.z) || world.getCurrentRoom();
   maybeTriggerJack(closet, room, ctx);
+  maybeTriggerTimothy(closet, room, ctx);
 
   const warn = setTimeout(() => {
     if (player.hiddenIn === closet) hud.bigWarning('GET OUT');
@@ -211,8 +223,62 @@ function killPlayer(cause) {
   }, 900);
 }
 
+function restorePower() {
+  powerRestored = true;
+  hud.toast('Power restored — the elevator should work now.', '#7ed07e');
+}
+
+function spawnGuidingLight(pedestal) {
+  if (guidingLight) return;
+  const wp = new THREE.Vector3();
+  pedestal.mesh.getWorldPosition(wp);
+  const group = new THREE.Group();
+  const glowGeo = new THREE.SphereGeometry(0.35, 10, 8);
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  group.add(glow);
+  const light = new THREE.PointLight(0xffdca0, 140, 16, 1.6);
+  group.add(light);
+  group.position.set(wp.x, wp.y + 1.6, wp.z);
+  scene.add(group);
+  guidingLight = { group, glow, glowMat, light, pedestal, phase: 0 };
+  hud.toast('...something glimmers nearby.', '#e8c97a');
+}
+
+function despawnGuidingLight() {
+  if (!guidingLight) return;
+  guidingLight.group.parent?.remove(guidingLight.group);
+  guidingLight.glow.geometry.dispose();
+  guidingLight.glowMat.dispose();
+  guidingLight = null;
+}
+
+function updateGuidingLight(dt, curRoom) {
+  const pedestal = curRoom && curRoom.keyPedestal;
+  if (!pedestal || pedestal.taken) {
+    stuckTimer = 0;
+    if (guidingLight) despawnGuidingLight();
+    return;
+  }
+  stuckTimer += dt;
+  if (guidingLight && guidingLight.pedestal !== pedestal) despawnGuidingLight();
+  if (!guidingLight && stuckTimer > CFG.guidingLightDelay) spawnGuidingLight(pedestal);
+  if (guidingLight) {
+    if (guidingLight.pedestal.taken) { despawnGuidingLight(); return; }
+    guidingLight.phase += dt * 2.4;
+    const pulse = 0.65 + Math.sin(guidingLight.phase) * 0.35;
+    guidingLight.light.intensity = 110 * pulse;
+    guidingLight.glowMat.opacity = pulse;
+  }
+}
+
 function pullLever() {
   if (won || gameState !== 'playing') return;
+  if (!powerRestored) {
+    hud.toast('The power is out. Restore it at the breaker panel first.', '#c33');
+    Sfx.error();
+    return;
+  }
   won = true;
   gameState = 'won';
   Input.exitLock();
@@ -255,12 +321,14 @@ function tryOpenDoor(doorRec, room) {
   const newRoom = world.generateNext();
   director.onDoorOpened(newRoom, ctx);
   hud.setRoom(newRoom.number);
+  stuckTimer = 0;
+  despawnGuidingLight();
 
   if (newRoom.isShop) {
     for (const it of inventory.buildShopPedestals(newRoom.group, newRoom.frame, 'shop')) newRoom.interactables.push(it);
     hud.toast("Jeff's Shop — a safe room. Spend your gold.", '#7ed07e');
   } else if (newRoom.isElevator) {
-    hud.toast('The elevator. Pull the lever to escape.', '#7ec8ff');
+    hud.toast('The elevator — but the power is out. Find the breaker switches.', '#7ec8ff');
   } else if (newRoom.isLibrary) {
     hud.toast('The Library. Read the books and the paper.', '#d4af37');
   }
@@ -280,6 +348,7 @@ function collectKey(pedestal, room) {
   if (pedestal.taken || gameState !== 'playing') return;
   pedestal.taken = true;
   pedestal.mesh.visible = false;
+  if (guidingLight && guidingLight.pedestal === pedestal) despawnGuidingLight();
   inventory.addKey(pedestal.doorNumber);
   Sfx.keyPickup();
   director.onInteractionNoise({ x: player.pos.x, z: player.pos.z });
@@ -299,7 +368,7 @@ const gameApi = {
   notify: (text, color) => hud.toast(text, color),
   caption: (text) => hud.caption(text),
   scare: (kind) => hud.scare(kind),
-  toggleHide, tryOpenDoor, collectGold, collectKey, toggleLights, pullLever,
+  toggleHide, tryOpenDoor, collectGold, collectKey, toggleLights, pullLever, restorePower,
   onLibraryBookRead: () => director.onBookRead(),
 };
 ctx.game = gameApi;
@@ -315,7 +384,10 @@ function yawTowards(from, to) {
 function startRun() {
   gameState = 'playing';
   won = false;
+  powerRestored = false;
   rehideBlockedUntil = 0;
+  stuckTimer = 0;
+  despawnGuidingLight();
   for (const t of closetTimers.values()) { clearTimeout(t.warn); clearTimeout(t.force); }
   closetTimers.clear();
   inventory.resetRun();
@@ -339,11 +411,20 @@ function startRun() {
   Input.requestLock();
 }
 
+function showMenuScreen() {
+  hud.showMenu({ knobs: inventory.knobs, best: inventory.bestDoor, saveCode: inventory.exportSaveCode() });
+}
+
 hud.on.play = () => {
   Sfx.init();
   Sfx.resume();
   if (!ambienceHandle) ambienceHandle = Sfx.ambience();
-  startRun();
+  // brief intro beat: the loading veil masks the world rebuild, then lifts
+  hud.showLoading();
+  setTimeout(() => {
+    startRun();
+    hud.hideLoading();
+  }, 1100);
 };
 hud.on.retry = () => { hud.hideScreens(); startRun(); };
 hud.on.quitToMenu = () => {
@@ -352,10 +433,29 @@ hud.on.quitToMenu = () => {
   hud.setGameplayVisible(false);
   Input.exitLock();
   world.reset(); // fresh lobby so the menu's live background is consistent, not wherever the run ended
-  hud.showMenu({ knobs: inventory.knobs, best: inventory.bestDoor });
+  showMenuScreen();
 };
 hud.on.resume = () => {
   if (gameState === 'paused') { gameState = 'playing'; hud.hideScreens(); Input.requestLock(); }
+};
+hud.on.copyCode = async () => {
+  const code = inventory.exportSaveCode();
+  hud.setSaveCode(code);
+  try {
+    await navigator.clipboard.writeText(code);
+    hud.saveCodeMessage('Copied to clipboard.', false);
+  } catch (e) {
+    hud.saveCodeMessage('Could not copy automatically — select the code and copy it manually.', true);
+  }
+};
+hud.on.importCode = (code) => {
+  const result = inventory.importSaveCode(code);
+  if (result.ok) {
+    showMenuScreen(); // showMenu() clears any prior message, so refresh first
+    hud.saveCodeMessage('Progress restored!', false);
+  } else {
+    hud.saveCodeMessage(result.error, true);
+  }
 };
 hud.onModalClose = () => {
   if (gameState === 'playing') Input.requestLock();
@@ -367,7 +467,7 @@ hud.onPadClick = () => Sfx.padClick();
 // never out of sync with what the game actually looks like.
 world.reset();
 hud.setGameplayVisible(false);
-hud.showMenu({ knobs: inventory.knobs, best: inventory.bestDoor });
+showMenuScreen();
 
 // Two-phase loop: open looking back at the broken elevator (the whole
 // premise of the game), then slowly dolly forward down the hallway toward
@@ -430,7 +530,7 @@ function updateObjective(room) {
   if (!room) { hud.objective(''); return; }
   if (room.isLibrary) hud.objective('Find the 5-digit code — read every book, then the paper');
   else if (room.isShop) hud.objective("Jeff's Shop — spend Gold here, this room is safe");
-  else if (room.isElevator) hud.objective('Pull the lever to escape');
+  else if (room.isElevator) hud.objective(powerRestored ? 'Pull the lever to escape' : 'Find all 10 breaker switches, then use the panel');
   else hud.objective('');
 }
 
@@ -443,7 +543,7 @@ if (DEBUG) {
     if (e.code === 'Digit9' && !director.sweeper.active) director.sweeper.trigger('Rush');
     if (e.code === 'Digit8') director.eyes.spawn(world.getCurrentRoom());
     if (e.code === 'Digit7' && !director.halt.active) director.halt.trigger();
-    if (e.code === 'Digit6') { inventory.addGold(500); hud.toast('+500 debug gold'); }
+    if (e.code === 'Digit0') { inventory.addGold(500); hud.toast('+500 debug gold'); }
   });
   window.__doors = {
     world, player, director, inventory, camera, scene, renderer,
@@ -475,6 +575,9 @@ function frame() {
       if (Input.pressed('Digit3')) inventory.selectSlot(2);
       if (Input.pressed('Digit4')) inventory.selectSlot(3);
       if (Input.pressed('Digit5')) inventory.selectSlot(4);
+      if (Input.pressed('Digit6')) inventory.selectSlot(5);
+      const wheel = Input.consumeWheel();
+      if (wheel) inventory.cycleSlot(Math.sign(wheel));
       if (Input.pressed('KeyF')) inventory.useSelected();
 
       player.update(dt, world.getColliders(), null);
@@ -505,18 +608,28 @@ function frame() {
 
     const curRoom = world.getRoomAt(player.pos.x, player.pos.y, player.pos.z);
     updateObjective(curRoom);
+    updateGuidingLight(dt, curRoom);
     const inDanger = curRoom && curRoom.dark && !curRoom.isShop && !curRoom.isElevator;
     scene.fog.far = damp(scene.fog.far, inDanger ? CFG.fogDark : CFG.fogNormal, 2, dt);
-    ambienceHandle?.setTension?.(inDanger || director.sweeper.active ? 1 : 0);
+    const hunted = director.sweeper.active || director.seek.active || director.halt.active;
+    ambienceHandle?.setTension?.(inDanger || hunted ? 1 : 0);
+    hud.setDanger(hunted ? 1 : (inDanger ? 0.35 : 0));
 
     hud.setGold(inventory.gold);
     hud.setKnobs(inventory.knobs);
     hud.setKeys(inventory.keys.size);
     hud.setHealth(player.health / CFG.player.health);
+    hud.setStamina(player.stamina);
 
     shakeAmp *= Math.exp(-6 * dt);
     if (shakeAmp < 0.005) shakeAmp = 0;
     player.applyCamera(camera, shakeAmp);
+
+    const targetFov = BASE_FOV + player.fovKick;
+    if (Math.abs(camera.fov - targetFov) > 0.02) {
+      camera.fov = targetFov;
+      camera.updateProjectionMatrix();
+    }
   }
 
   Input.endFrame();

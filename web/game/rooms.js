@@ -25,6 +25,13 @@ const LAMP_BASE_INT = 480;
 const OPEN_ANGLE = -1.95; // ~112°, doors swing "inward/away"
 const CLOSET_OPEN_ANGLE = -2.05;
 
+// Regular-room furniture pool (couch / side table / freestanding shelf) —
+// placed in the same wall slots closets use, capped independently so rooms
+// don't get overcrowded.
+const MAX_FURNITURE = 2;
+const FURNITURE_CHANCE = 0.32;
+const FURNITURE_KINDS = ['couch', 'table', 'shelf'];
+
 export { GAP };
 
 function meshYaw(frame) {
@@ -77,7 +84,9 @@ function isSharedMaterial(m) {
     || m === Mats.bulbOn || m === Mats.bulbOff || m === Mats.bulbBroken
     || m === Mats.purple || m === Mats.haltBlue || m === Mats.white
     || m === Mats.frame || m === Mats.darkWood || m === Mats.keyGold
-    || m === Mats.paperMat;
+    || m === Mats.paperMat
+    || m === Mats.upholstery || m === Mats.foliage || m === Mats.foliageDark
+    || m === Mats.terracotta;
 }
 
 // ---- a room under construction accumulates its own disposables ----
@@ -307,6 +316,89 @@ function buildCloset(b, group, frame, localX, localZ, wallSide, room) {
   };
 }
 
+// ---- furniture (regular rooms) --------------------------------------------
+// Purely decorative set-pieces for non-special rooms, dropped into the same
+// wall slots buildCloset() uses. Like the library desk/shelves below, these
+// get NO collider — that matches this file's existing convention for
+// freestanding decor (only actual walls/doors/closets are collidable).
+// localX is wall-flush (±W/2), matching the slot convention closets use;
+// `side` is the wall side (-1 left, 1 right) and `inward` points from the
+// wall into the room, same convention as buildCloset().
+function buildFurniture(b, group, frame, localX, localZ, side, kind) {
+  const inward = -side;
+  if (kind === 'couch') {
+    const width = 5.0;
+    b.box(localX + inward * 0.25, localZ, 0.5, width, 1.5, 3.0, Mats.upholstery);        // backrest
+    b.box(localX + inward * 1.4, localZ, 1.8, width - 0.8, 0.65, 1.3, Mats.upholstery);  // seat cushion
+    b.box(localX + inward * 1.15, localZ - width / 2 + 0.3, 2.3, 0.6, 0.9, 1.8, Mats.darkWood); // armrest
+    b.box(localX + inward * 1.15, localZ + width / 2 - 0.3, 2.3, 0.6, 0.9, 1.8, Mats.darkWood); // armrest
+  } else if (kind === 'table') {
+    b.box(localX + inward * 1.0, localZ, 0.6, 0.6, 1.0, 2.0, Mats.darkWood);   // pedestal leg
+    b.box(localX + inward * 1.0, localZ, 1.4, 1.4, 2.05, 0.15, Mats.darkWood); // tabletop
+    const geo = new THREE.SphereGeometry(0.22, 8, 6);
+    const mesh = new THREE.Mesh(geo, Mats.gold);
+    const p = toWorld(frame, localX + inward * 1.0, localZ);
+    mesh.position.set(p.x, 2.92, p.z); // small gold ornament resting on the tabletop
+    b.geos.push(geo);
+    group.add(mesh);
+  } else { // shelf — reuses the library's bookshelf texture on a standalone carcass
+    const width = 3.0;
+    b.box(localX + inward * 0.6, localZ, 1.2, width, 2.5, 5.0, Mats.darkWood); // carcass
+    const shelfMat = Mats.shelf(1, 2);
+    b.trackMat(shelfMat);
+    const faceGeo = new THREE.PlaneGeometry(width - 0.2, 4.8);
+    const p = toWorld(frame, localX + inward * 1.21, localZ);
+    const mesh = new THREE.Mesh(faceGeo, shelfMat);
+    mesh.position.set(p.x, 2.5, p.z);
+    mesh.rotation.y = meshYaw(frame) + (side === -1 ? Math.PI / 2 : -Math.PI / 2);
+    b.geos.push(faceGeo);
+    group.add(mesh);
+  }
+}
+
+// ---- greenhouse decor (doors 90-99) ---------------------------------------
+// Vine strands climbing the walls, floor planters, and vines dripping from
+// the ceiling. All purely decorative (no colliders), mirroring how
+// paintings/furniture work elsewhere in this file.
+function addVineStrand(b, group, frame, localX, localZ, side, H) {
+  const inward = -side;
+  const trunkH = rand(H - 4, H - 1.5);
+  b.box(localX + inward * 0.2, localZ, 0.35, 0.4, trunkH / 2, trunkH, Mats.foliage);
+  const leafCount = randInt(3, 5);
+  for (let i = 0; i < leafCount; i++) {
+    const y = rand(1.5, trunkH - 1);
+    const geo = new THREE.BoxGeometry(0.7, 0.5, 0.7);
+    const mesh = new THREE.Mesh(geo, i % 2 === 0 ? Mats.foliage : Mats.foliageDark);
+    const p = toWorld(frame, localX + inward * 0.6, localZ + rand(-0.6, 0.6));
+    mesh.position.set(p.x, y, p.z);
+    mesh.rotation.y = rand(0, Math.PI * 2);
+    b.geos.push(geo);
+    group.add(mesh);
+  }
+}
+
+function addFloorPlanter(b, group, frame, localX, localZ, side) {
+  const inward = -side;
+  const cx = localX + inward * 1.3;
+  b.box(cx, localZ, 1.6, 2.4, 0.9, 1.8, Mats.terracotta); // oblong planter box
+  const foliageCount = randInt(3, 5);
+  for (let i = 0; i < foliageCount; i++) {
+    const geo = new THREE.BoxGeometry(rand(0.6, 1.1), rand(1.2, 2.2), rand(0.6, 1.1));
+    const mesh = new THREE.Mesh(geo, i % 2 === 0 ? Mats.foliage : Mats.foliageDark);
+    const p = toWorld(frame, cx + rand(-0.6, 0.6), localZ + rand(-0.9, 0.9));
+    mesh.position.set(p.x, 1.8 + rand(0, 0.6), p.z);
+    mesh.rotation.y = rand(0, Math.PI * 2);
+    b.geos.push(geo);
+    group.add(mesh);
+  }
+}
+
+function addHangingVine(b, group, frame, localX, localZ, H) {
+  const dropLen = rand(2.5, 5);
+  const cy = H - dropLen / 2 - 0.3;
+  b.box(localX, localZ, 0.3, 0.3, cy, dropLen, Mats.foliageDark);
+}
+
 // ---- gold / key props ----------------------------------------------------
 function makeSpinner(b, group, room, frame, localX, localZ, geo, material, baseY, spinSpeed) {
   const p = toWorld(frame, localX, localZ);
@@ -326,13 +418,17 @@ export function buildRoom(frame, opts) {
   } = opts;
 
   const W = CFG.room.W, H = CFG.room.H;
+  // Doors 90-99 ("The Greenhouse" in the real game): always dark (already
+  // true via world.js's `dark` roll), but also gets its own wall material +
+  // decor pool below instead of the standard hotel dressing.
+  const isGreenhouse = number >= CFG.room.greenhouseStart && number < CFG.room.finalRoom;
   const group = new THREE.Group();
   group.name = `Room_${number}`;
 
   const room = {
     number, group, frame, exitFrame: null, length,
     bounds: null, colliders: [], pathNodes: [],
-    dark, isShop, isElevator, isLobby, isLibrary,
+    dark, isShop, isElevator, isLobby, isLibrary, isGreenhouse,
     lights: [], switchObj: null, closets: [],
     exitDoor: null, keyPedestal: null, goldPiles: [],
     leverGroup: null, interactables: [],
@@ -350,12 +446,18 @@ export function buildRoom(frame, opts) {
   b.box(0, (fz0 + fz1) / 2, W + 1, fz1 - fz0, -0.5, 1, floorMat);
   b.box(0, (fz0 + fz1) / 2, W + 1, fz1 - fz0, H + 0.5, 1, ceilMat);
 
-  const carpetMat = Mats.carpet(1.2, length / 10);
-  b.trackMat(carpetMat);
-  b.box(0, length / 2, Math.min(6, W - 6), length, 0.02, 0.05, carpetMat);
+  // The Greenhouse has no hotel carpet runner in the real game (bare/worn
+  // floor with planters instead), so skip it there.
+  if (!isGreenhouse) {
+    const carpetMat = Mats.carpet(1.2, length / 10);
+    b.trackMat(carpetMat);
+    b.box(0, length / 2, Math.min(6, W - 6), length, 0.02, 0.05, carpetMat);
+  }
 
   // ---- walls ----
-  const wallMat = isLibrary ? Mats.wainscot(length / 6, H / 8) : Mats.wall(length / 6, H / 8);
+  const wallMat = isLibrary ? Mats.wainscot(length / 6, H / 8)
+    : isGreenhouse ? Mats.greenhouseWall(length / 6, H / 8)
+    : Mats.wall(length / 6, H / 8);
   b.trackMat(wallMat);
 
   const sideExitZ = length - CFG.room.sideInset;
@@ -429,7 +531,12 @@ export function buildRoom(frame, opts) {
     { x: room.exitFrame.x, y: 5, z: room.exitFrame.z },
   ];
 
-  // ---- closets ----
+  // ---- closets (+ furniture in leftover slots, regular rooms only) ----
+  // The Greenhouse keeps its "crudely-made closets" per room (matching the
+  // real game) but never gets couch/table/shelf furniture — it has no
+  // tables or containers there. Closets take priority over furniture in any
+  // given slot; a slot that doesn't roll a closet may roll furniture
+  // instead (regular rooms only), so the two never occupy the same spot.
   if (!isElevator && !isShop && !isLibrary) {
     const slots = [];
     for (let z = 8; z <= length - 10; z += 8) {
@@ -440,12 +547,13 @@ export function buildRoom(frame, opts) {
       const j = randInt(0, i);
       [slots[i], slots[j]] = [slots[j], slots[i]];
     }
-    let placed = 0;
+    let placedClosets = 0;
+    let placedFurniture = 0;
+    const allowFurniture = !isGreenhouse;
     for (const slot of slots) {
-      if (placed >= CFG.room.maxClosets) break;
-      if (chance(CFG.room.closetChance)) {
-        placed++;
-        const localX = slot.side === -1 ? -W / 2 : W / 2;
+      const localX = slot.side === -1 ? -W / 2 : W / 2;
+      if (placedClosets < CFG.room.maxClosets && chance(CFG.room.closetChance)) {
+        placedClosets++;
         const closet = buildCloset(b, group, frame, localX, slot.z, slot.side, room);
         room.closets.push(closet);
         room.interactables.push({
@@ -454,7 +562,37 @@ export function buildRoom(frame, opts) {
             : (ctx.player.hiddenIn === closet ? 'Come out' : 'Hide'),
           interact: (ctx) => ctx.game.toggleHide(closet),
         });
+        continue;
       }
+      if (allowFurniture && placedFurniture < MAX_FURNITURE && chance(FURNITURE_CHANCE)) {
+        placedFurniture++;
+        buildFurniture(b, group, frame, localX, slot.z, slot.side, choice(FURNITURE_KINDS));
+      }
+    }
+  }
+
+  // ---- greenhouse decor (doors 90-99): vines on the walls, floor
+  // planters, and vines dripping from the ceiling ----
+  if (isGreenhouse) {
+    const vineCount = Math.max(2, Math.floor(length / 14));
+    for (let i = 0; i < vineCount; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const z = rand(6, Math.max(7, length - 6));
+      if (exit === (side === -1 ? 'left' : 'right') && Math.abs(z - sideExitZ) < 6) continue;
+      addVineStrand(b, group, frame, side * W / 2, z, side, H);
+    }
+    const planterCount = randInt(1, 3);
+    for (let i = 0; i < planterCount; i++) {
+      const side = choice([-1, 1]);
+      const z = rand(8, Math.max(9, length - 8));
+      if (exit === (side === -1 ? 'left' : 'right') && Math.abs(z - sideExitZ) < 7) continue;
+      addFloorPlanter(b, group, frame, side * W / 2, z, side);
+    }
+    const hangCount = randInt(2, 4);
+    for (let i = 0; i < hangCount; i++) {
+      const x = rand(-(W / 2 - 3), W / 2 - 3);
+      const z = rand(4, Math.max(5, length - 4));
+      addHangingVine(b, group, frame, x, z, H);
     }
   }
 
@@ -500,8 +638,8 @@ export function buildRoom(frame, opts) {
     });
   }
 
-  // ---- paintings ----
-  if (!isLibrary) {
+  // ---- paintings (no old hotel portraits in the overgrown Greenhouse) ----
+  if (!isLibrary && !isGreenhouse) {
     for (const side of [-1, 1]) {
       if (exit === (side === -1 ? 'left' : 'right')) continue;
       if (chance(CFG.room.paintingChance ?? 0.5)) {
@@ -548,6 +686,38 @@ export function buildRoom(frame, opts) {
       getLabel: () => 'Pull Lever',
       interact: (ctx) => ctx.game.pullLever(),
     });
+
+    // Circuit breaker puzzle: 10 switch pickups scattered around the room,
+    // plus a panel prop. Neither gets a real interactable here — like the
+    // library's books, `entities/electrical.js` assigns each switch a
+    // number and owns the panel's actual behavior once the room exists;
+    // this just builds the passive geometry + prompt anchors.
+    room.electricalSwitches = [];
+    const switchGeo = new THREE.BoxGeometry(0.5, 1.3, 0.35);
+    for (let i = 0; i < CFG.electrical.switchCount; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const sx = side * (W / 2 - randInt(2, 5));
+      const sz = randInt(4, length - 4);
+      const sy = rand(1.5, 4.2);
+      const p2 = toWorld(frame, sx, sz);
+      const mesh = new THREE.Mesh(switchGeo, Mats.brass);
+      mesh.position.set(p2.x, sy, p2.z);
+      mesh.rotation.y = rand(0, Math.PI * 2);
+      group.add(mesh);
+      room.electricalSwitches.push({ mesh, promptPos: { x: p2.x, y: sy, z: p2.z }, num: null, collected: false });
+    }
+    b.geos.push(switchGeo);
+
+    const panelGeo = new THREE.BoxGeometry(3.4, 2.4, 0.3);
+    const panelMat = Mats.metal(1, 1);
+    b.trackMat(panelMat);
+    const panelP = toWorld(frame, -6, backZ);
+    const panelMesh = new THREE.Mesh(panelGeo, panelMat);
+    panelMesh.position.set(panelP.x, 4.2, panelP.z);
+    panelMesh.rotation.y = meshYaw(frame);
+    b.geos.push(panelGeo);
+    group.add(panelMesh);
+    room.electricalPanel = { mesh: panelMesh, promptPos: { x: panelP.x, y: 4.2, z: panelP.z } };
   }
 
   // ---- lobby: a broken elevator marks the starting point (the whole
@@ -588,6 +758,37 @@ export function buildRoom(frame, opts) {
     btnLight.position.set(btnLightP.x, 4.9, btnLightP.z);
     b.geos.push(btnLightGeo);
     group.add(btnLight);
+
+    // ---- reception desk: echoes the real game's Room 0 reception counter
+    // facing the elevator bank. Offset to the left so it stays clear of the
+    // direct spawn-to-exit walking line and of the left-wall closet zone
+    // (closets sit flush at localX = -W/2, extending inward by ~3 units —
+    // this desk's nearest edge stays a couple units clear of that).
+    const deskX = -(W / 2 - 7.5);
+    const deskZ = 6;
+    b.box(deskX, deskZ, 5.4, 2.2, 1.3, 2.6, Mats.darkWood);  // counter body
+    b.box(deskX, deskZ, 5.7, 2.5, 2.62, 0.16, Mats.brass);   // brass-trimmed countertop
+
+    const bellGeo = new THREE.SphereGeometry(0.22, 10, 8);
+    const bellMesh = new THREE.Mesh(bellGeo, Mats.gold);
+    const bellP = toWorld(frame, deskX + 1.6, deskZ - 0.7);
+    bellMesh.position.set(bellP.x, 2.92, bellP.z); // sits on the countertop (top surface y=2.70)
+    b.geos.push(bellGeo);
+    group.add(bellMesh);
+
+    // potted plant beside the desk
+    const potGeo = new THREE.CylinderGeometry(0.5, 0.4, 1.0, 8);
+    const potMesh = new THREE.Mesh(potGeo, Mats.terracotta);
+    const potP = toWorld(frame, deskX - 3.2, deskZ + 0.4);
+    potMesh.position.set(potP.x, 0.5, potP.z);
+    b.geos.push(potGeo);
+    group.add(potMesh);
+    const leafGeo = new THREE.SphereGeometry(0.9, 8, 6);
+    const leafMesh = new THREE.Mesh(leafGeo, Mats.foliage);
+    leafMesh.position.set(potP.x, 1.3, potP.z);
+    leafMesh.scale.set(1, 1.3, 1);
+    b.geos.push(leafGeo);
+    group.add(leafMesh);
   }
 
   // ---- library ----

@@ -56,15 +56,18 @@ function drawWoodPlanks(base, dark) {
 
 function drawWallpaper() {
   return canvas(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#4a2f28';
+    // warm tan/beige hotel wallpaper base (was a much darker, more generic
+    // brown) with a muted wine-maroon damask pattern over it, closer to the
+    // real DOORS hotel corridors.
+    ctx.fillStyle = '#7c5a3c';
     ctx.fillRect(0, 0, w, h);
     // stripes
     for (let x = 0; x < w; x += 32) {
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
       ctx.fillRect(x, 0, 16, h);
     }
     // damask-ish diamonds
-    ctx.fillStyle = 'rgba(160,120,80,0.14)';
+    ctx.fillStyle = 'rgba(122,35,30,0.22)';
     for (let y = 16; y < h; y += 44) {
       for (let x = ((y / 44) % 2) * 22 + 8; x < w; x += 44) {
         ctx.beginPath();
@@ -78,6 +81,41 @@ function drawWallpaper() {
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, 'rgba(0,0,0,0.4)');
     ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  });
+}
+
+// Greenhouse (doors 90-99) wall treatment: a darker, greener, mossier
+// plaster than the standard hotel wallpaper — the real game's Greenhouse is
+// unlit, overgrown, and visibly rotting. Same canvas-painting approach as
+// drawWallpaper() (grime gradient + speckle) so it reads as part of the
+// same worn-hotel material family, just recolored and re-patterned.
+function drawGreenhouseWall() {
+  return canvas(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#2b3423';
+    ctx.fillRect(0, 0, w, h);
+    // faint vertical seams (old paneling/window-mullion rhythm)
+    for (let x = 0; x < w; x += 42) {
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(x, 0, 5, h);
+    }
+    // moss/mold blotches
+    for (let i = 0; i < 10; i++) {
+      const g = ctx.createRadialGradient(
+        rand(0, w), rand(0, h), 2,
+        rand(0, w), rand(0, h), rand(18, 50),
+      );
+      g.addColorStop(0, `rgba(${randInt(50, 80)},${randInt(80, 115)},${randInt(40, 60)},0.4)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
+    speckle(ctx, w, h, 350, 0.16);
+    // damp grime at the bottom edge, tinted green rather than plain black
+    const g2 = ctx.createLinearGradient(0, h * 0.62, 0, h);
+    g2.addColorStop(0, 'rgba(0,0,0,0)');
+    g2.addColorStop(1, 'rgba(4,14,4,0.5)');
+    ctx.fillStyle = g2;
     ctx.fillRect(0, 0, w, h);
   });
 }
@@ -116,7 +154,9 @@ function drawCeiling() {
 
 function drawCarpet() {
   return canvas(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#5a1f1c';
+    // deep hotel-maroon, slightly richer/darker than before so the gold
+    // trim reads more clearly against it.
+    ctx.fillStyle = '#4a1613';
     ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = 'rgba(212,175,55,0.35)';
     ctx.lineWidth = 6;
@@ -262,6 +302,7 @@ export function initMaterials() {
   C.floor = drawWoodPlanks('#4a3627', '#241811');
   C.floorDark = drawWoodPlanks('#33261c', '#170f0a');
   C.wallpaper = drawWallpaper();
+  C.greenhouseWall = drawGreenhouseWall();
   C.wainscot = drawWainscot();
   C.ceiling = drawCeiling();
   C.carpet = drawCarpet();
@@ -294,11 +335,20 @@ export function initMaterials() {
     darkWood: lam({ color: 0x2e2018 }),
     keyGold: lam({ color: 0xe8c34a, emissive: 0x604810, roughness: 0.4, metalness: 0.5 }),
     paperMat: lam({ map: texFrom(C.paper) }),
+    // furniture / greenhouse decor — solid colors, shared like the rest of
+    // this block (never disposed; see isSharedMaterial() in rooms.js, which
+    // MUST list every entry added here or room culling will dispose a
+    // material still in use by other rooms).
+    upholstery: lam({ color: 0x5c2320, roughness: 0.92 }),
+    foliage: lam({ color: 0x3c5c30, roughness: 0.88 }),
+    foliageDark: lam({ color: 0x27401f, roughness: 0.92 }),
+    terracotta: lam({ color: 0x8a4a30, roughness: 0.9 }),
 
     // factories: caller owns disposal (push into room.disposables)
     floor: (rx, ry) => lam({ map: texFrom(C.floor, rx, ry) }),
     floorDark: (rx, ry) => lam({ map: texFrom(C.floorDark, rx, ry) }),
     wall: (rx, ry) => lam({ map: texFrom(C.wallpaper, rx, ry) }),
+    greenhouseWall: (rx, ry) => lam({ map: texFrom(C.greenhouseWall, rx, ry) }),
     wainscot: (rx, ry) => lam({ map: texFrom(C.wainscot, rx, ry) }),
     ceiling: (rx, ry) => lam({ map: texFrom(C.ceiling, rx, ry) }),
     carpet: (rx, ry) => lam({ map: texFrom(C.carpet, rx, ry) }),

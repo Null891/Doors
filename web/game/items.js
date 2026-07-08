@@ -23,16 +23,23 @@ const ITEM_META = {
   lockpick:   { name: 'Lockpick',   icon: '🪛' },
   vitamins:   { name: 'Vitamins',   icon: '💊' },
   crucifix:   { name: 'Crucifix',   icon: '✝️' },
+  bandage:    { name: 'Bandage',    icon: '🩹' },
+  battery:    { name: 'Battery',    icon: '🔋' },
 };
 const ICON = {
   Flashlight: '🔦',
   Vitamins: '💊',
   Crucifix: '✝️',
+  Bandage: '🩹',
+  Battery: '🔋',
 };
 
 // Physically-correct light falloff needs candela-scale intensity, not the
 // old ~1-3 convention (see rooms.js's LAMP_BASE_INT for the same fix).
 const FLASH_ON_INTENSITY = 320;
+
+// The real game's inventory holds 6 items.
+const HOTBAR_SLOTS = 6;
 
 function loadInt(key, def) {
   const raw = localStorage.getItem(key);
@@ -51,7 +58,7 @@ export class Inventory {
     this.gold = 0;
     this.keys = new Set();       // door numbers we hold keys for
     this.lockpicks = 0;          // charge counter, NOT a hotbar item
-    this.slots = [null, null, null, null, null]; // exactly 5 hotbar slots
+    this.slots = new Array(HOTBAR_SLOTS).fill(null);
     this.selected = 0;
     this.flashlightOn = false;
     this.flashlightBattery = 0;  // seconds remaining; 0 also means "none owned"
@@ -62,6 +69,7 @@ export class Inventory {
 
     // lazily created THREE.SpotLight (main.js parents it to the camera)
     this._flashlightLight = null;
+    this._flickerPhase = 0;
   }
 
   // ---- persistence ------------------------------------------------
@@ -82,6 +90,47 @@ export class Inventory {
       this.bestDoor = n;
       this.saveBestDoor();
     }
+  }
+
+  // ---- portable save code (copy/paste progress between browsers) -----
+  // Format: "DOORS-XXXX-<base64>" — XXXX is a checksum over the base64
+  // payload, catching typos/truncation on import without needing a server.
+  _checksum(b64) {
+    let sum = 0;
+    for (let i = 0; i < b64.length; i++) sum = (sum + b64.charCodeAt(i) * (i + 1)) % 999331;
+    return sum.toString(36).toUpperCase().padStart(4, '0');
+  }
+
+  exportSaveCode() {
+    const json = JSON.stringify({ v: 1, k: this.knobs, d: this.bestDoor });
+    const b64 = btoa(json);
+    return `DOORS-${this._checksum(b64)}-${b64}`;
+  }
+
+  // Returns { ok: true } or { ok: false, error }. On success, knobs/bestDoor
+  // are updated and persisted immediately.
+  importSaveCode(code) {
+    const trimmed = (code || '').trim();
+    const m = trimmed.match(/^DOORS-([0-9A-Z]{4})-(.+)$/);
+    if (!m) return { ok: false, error: 'That doesn\'t look like a save code.' };
+    const [, checksum, b64] = m;
+    if (this._checksum(b64) !== checksum) {
+      return { ok: false, error: 'Checksum mismatch — check for typos or a cut-off paste.' };
+    }
+    let payload;
+    try {
+      payload = JSON.parse(atob(b64));
+    } catch (e) {
+      return { ok: false, error: 'Could not read that code.' };
+    }
+    if (typeof payload.k !== 'number' || typeof payload.d !== 'number') {
+      return { ok: false, error: 'Corrupted code.' };
+    }
+    this.knobs = Math.max(0, Math.floor(payload.k));
+    this.bestDoor = Math.max(0, Math.floor(payload.d));
+    this.saveKnobs();
+    this.saveBestDoor();
+    return { ok: true };
   }
 
   // ---- gold (in-memory, run-scoped) -------------------------------
@@ -126,7 +175,7 @@ export class Inventory {
     return this.slots.findIndex((s) => s === null);
   }
 
-  // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick'
+  // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick' | 'Bandage' | 'Battery'
   giveItem(name) {
     // Lockpick is a charge counter, never a hotbar slot.
     if (name === 'Lockpick') { this.addLockpick(1); return; }
@@ -155,20 +204,26 @@ export class Inventory {
       return;
     }
 
-    // Vitamins: stackable — drink later, count increments if already held.
-    if (name === 'Vitamins') {
-      const i = this._findSlot('Vitamins');
+    // Vitamins / Bandage / Battery: stackable consumables — count increments
+    // if already held, used later via useSelected().
+    if (name === 'Vitamins' || name === 'Bandage' || name === 'Battery') {
+      const i = this._findSlot(name);
       if (i >= 0) { this.slots[i].count++; return; }
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
-      this.slots[empty] = { name, icon: ICON.Vitamins, count: 1, meter: null };
+      this.slots[empty] = { name, icon: ICON[name], count: 1, meter: null };
       return;
     }
   }
 
   // ---- selection & use --------------------------------------------
   selectSlot(i) {
-    if (i >= 0 && i < 5) this.selected = i;
+    if (i >= 0 && i < HOTBAR_SLOTS) this.selected = i;
+  }
+
+  // relative slot movement for scroll-wheel switching (wraps around)
+  cycleSlot(delta) {
+    this.selected = (this.selected + delta + HOTBAR_SLOTS) % HOTBAR_SLOTS;
   }
 
   get selectedItem() {
@@ -206,6 +261,34 @@ export class Inventory {
       this.hud.toast('Hold it out when something comes…', '#d4af37');
       return;
     }
+
+    if (item.name === 'Bandage') {
+      if (this.player.health >= CFG.player.health) {
+        this.hud.toast('Already at full health.', '#c33');
+        return;
+      }
+      this.player.heal(CFG.items.bandageHeal);
+      item.count--;
+      if (item.count <= 0) this.slots[this.selected] = null;
+      this.sfx.heal();
+      this.hud.toast('+' + CFG.items.bandageHeal + ' health', '#7ed07e');
+      return;
+    }
+
+    if (item.name === 'Battery') {
+      const fi = this._findSlot('Flashlight');
+      if (fi < 0) {
+        this.hud.toast("You don't have a flashlight to charge.", '#c33');
+        return;
+      }
+      const restore = CFG.items.batteryRestore * CFG.items.flashlightBattery;
+      this.flashlightBattery = Math.min(CFG.items.flashlightBattery, this.flashlightBattery + restore);
+      item.count--;
+      if (item.count <= 0) this.slots[this.selected] = null;
+      this.sfx.purchase();
+      this.hud.toast('Flashlight recharged.', '#7ed07e');
+      return;
+    }
   }
 
   // ---- per-frame tick ---------------------------------------------
@@ -221,7 +304,7 @@ export class Inventory {
     if (fi >= 0) {
       this.slots[fi].meter = this.flashlightBattery / CFG.items.flashlightBattery;
     }
-    this._applyFlashlight();
+    this._applyFlashlight(dt);
 
     this.renderHotbar();
   }
@@ -247,11 +330,25 @@ export class Inventory {
     return this._flashlightLight;
   }
 
-  _applyFlashlight() {
+  // Below ~15% charge the beam flickers as a warning, same tell the real
+  // game uses before a flashlight dies outright — a hard on/off cutoff at
+  // zero gave no advance notice.
+  _applyFlashlight(dt = 0) {
     if (!this._flashlightLight) return;
     const lit = this.flashlightOn && this.flashlightBattery > 0;
-    this._flashlightLight.intensity = lit ? FLASH_ON_INTENSITY : 0;
-    this._flashlightLight.visible = lit;
+    if (!lit) {
+      this._flashlightLight.intensity = 0;
+      this._flashlightLight.visible = false;
+      return;
+    }
+    const frac = this.flashlightBattery / CFG.items.flashlightBattery;
+    let mult = 1;
+    if (frac < 0.15) {
+      this._flickerPhase += dt * 14;
+      mult = 0.5 + 0.5 * Math.abs(Math.sin(this._flickerPhase)) * (0.5 + 0.5 * Math.random());
+    }
+    this._flashlightLight.intensity = FLASH_ON_INTENSITY * mult;
+    this._flashlightLight.visible = true;
   }
 
   // ---- rendering ---------------------------------------------------
@@ -264,7 +361,7 @@ export class Inventory {
     this.gold = 0;
     this.keys.clear();
     this.lockpicks = 0;
-    this.slots = [null, null, null, null, null];
+    this.slots = new Array(HOTBAR_SLOTS).fill(null);
     this.selected = 0;
     this.flashlightOn = false;
     this.flashlightBattery = 0;
@@ -279,7 +376,7 @@ export class Inventory {
     const prices = isShop ? CFG.shopGold : CFG.lobbyKnobs;
     const currencyLabel = isShop ? 'gold' : 'knobs';
 
-    const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix'];
+    const keys = ['flashlight', 'lockpick', 'vitamins', 'crucifix', 'bandage', 'battery'];
     const interactables = [];
 
     // shared geometry across the (few) pedestals in this room

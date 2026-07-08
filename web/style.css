@@ -8,6 +8,13 @@
   --blood: #c33;
   --guiding: #7ec8ff;
   --purple: #a44ce0;
+  /* shared "glass" panel look used across the gameplay HUD chrome — dark,
+     semi-transparent, subtly blurred, warm hairline border. Keeps the
+     prompt/room-counter/currency/hotbar/modals reading as one system. */
+  --panel-bg: rgba(12, 10, 8, 0.62);
+  --panel-bg-strong: rgba(14, 11, 8, 0.88);
+  --panel-border: rgba(215, 195, 160, 0.22);
+  --panel-blur: 8px;
   font-size: clamp(12px, 1.4vh, 18px);
 }
 
@@ -42,96 +49,243 @@ html, body {
 /* ---- room counter ---- */
 #room-label {
   top: 3vh; left: 50%; transform: translateX(-50%);
-  font-size: 2rem;
-  opacity: 0.92;
+  font-size: 1.7rem;
+  opacity: 0.95;
+  padding: 0.3em 1.3em;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+}
+/* plays once whenever setRoom() actually changes the label — a quick
+   gold flash + scale so a new door registers as an event, not a text swap.
+   Every keyframe restates translateX(-50%) because this animation fully
+   replaces the element's `transform` for its duration (animated values
+   always win over the static rule while running) — omitting it here would
+   make the label jump to un-centered during the bump. */
+#room-label.bump { animation: room-bump 0.55s cubic-bezier(0.2, 0.8, 0.3, 1.2); }
+@keyframes room-bump {
+  0%   { transform: translateX(-50%) scale(1); text-shadow: none; }
+  35%  { transform: translateX(-50%) scale(1.16); color: var(--gold); text-shadow: 0 0 18px rgba(212,175,55,0.7); }
+  100% { transform: translateX(-50%) scale(1); text-shadow: none; }
 }
 
 /* ---- currencies ---- */
 #currency {
   top: 3vh; right: 2vw; text-align: right;
-  font-size: 1.1rem; line-height: 1.6;
+  font-size: 1.05rem; line-height: 1.85;
+  padding: 0.5em 0.9em;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  font-variant-numeric: tabular-nums;
 }
+#currency .gold, #currency .knobs, #currency .keys { display: flex; align-items: center; justify-content: flex-end; gap: 0.4em; }
 #currency .gold { color: var(--gold); }
 #currency .knobs { color: var(--guiding); }
+#currency .keys { color: var(--parchment); font-size: 0.9em; opacity: 0.9; }
+/* small CSS-only "coin" / "knob" glyphs — no external art allowed, so these
+   are drawn as tiny radial-gradient discs to echo the item shape at a glance. */
+#currency .gold::before, #currency .knobs::before {
+  content: ''; display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%;
+}
+#currency .gold::before {
+  background: radial-gradient(circle at 32% 28%, #fff6d2 0%, var(--gold) 55%, #7a5f1a 100%);
+  box-shadow: 0 0 4px rgba(212,175,55,0.6);
+}
+#currency .knobs::before {
+  background: radial-gradient(circle at 32% 28%, #eaf6ff 0%, var(--guiding) 55%, #2c6386 100%);
+  box-shadow: 0 0 4px rgba(126,200,255,0.55);
+}
+/* plays once when setGold()/setKnobs() sees an increase */
+.pulse-gain { animation: currency-gain 0.55s ease; }
+@keyframes currency-gain {
+  0%   { transform: scale(1); filter: brightness(1); }
+  30%  { transform: scale(1.16); filter: brightness(1.5); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
 
 /* ---- crosshair ---- */
 #crosshair {
   top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 5px; height: 5px; border-radius: 50%;
-  background: rgba(255,255,255,0.55);
-  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255,255,255,0.6);
+  box-shadow: 0 0 3px rgba(0,0,0,0.85);
+  transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.3);
 }
+#crosshair::after {
+  content: '';
+  position: absolute; inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0);
+  transition: border-color 0.18s ease;
+}
+/* brightens + gains a faint ring whenever hud.prompt() has an active label —
+   i.e. you're looking at something interactable, mirroring the reticle
+   feedback convention from horror/interaction games. */
+#crosshair.active {
+  background: var(--gold);
+  box-shadow: 0 0 7px rgba(212,175,55,0.95);
+  transform: translate(-50%, -50%) scale(1.4);
+}
+#crosshair.active::after { border-color: rgba(212,175,55,0.55); }
 
 /* ---- interact prompt ---- */
 #prompt {
-  bottom: 22vh; left: 50%; transform: translateX(-50%);
-  font-size: 1.25rem; color: #fff;
+  bottom: 22vh; left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  font-size: 1.2rem; color: #fff;
   text-shadow: 0 0 8px #000;
-  padding: 0.4em 1em;
-  background: rgba(0,0,0,0.45);
-  border: 1px solid rgba(215,195,160,0.35);
-  border-radius: 4px;
+  padding: 0.45em 1.1em;
+  display: flex; align-items: center;
+  background: var(--panel-bg-strong);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: 0 6px 22px rgba(0,0,0,0.4);
   white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+}
+#prompt.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 #prompt .key {
   display: inline-block;
-  border: 1px solid var(--parchment);
+  border: 1px solid var(--gold);
   border-radius: 3px;
-  padding: 0 0.4em; margin-right: 0.5em;
-  color: var(--parchment);
+  padding: 0 0.45em; margin-right: 0.6em;
+  color: var(--gold);
   font-weight: bold;
+  box-shadow: 0 0 6px rgba(212,175,55,0.25);
 }
 
 /* ---- hotbar ---- */
 #hotbar {
   bottom: 2.5vh; left: 50%; transform: translateX(-50%);
-  display: flex; gap: 0.5rem;
+  display: flex; gap: 0.6rem;
 }
 .slot {
-  width: 3.4rem; height: 3.4rem;
-  background: rgba(10,8,6,0.72);
-  border: 1px solid rgba(215,195,160,0.3);
-  border-radius: 5px;
+  width: 3.5rem; height: 3.5rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
   flex-direction: column;
   font-size: 1.5rem;
   position: relative;
   color: var(--parchment);
+  opacity: 0.6;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  transition: opacity 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
-.slot.selected { border-color: var(--gold); box-shadow: 0 0 10px rgba(212,175,55,0.35); }
+/* empty slots read as clearly inert — dashed hairline, dimmed — while
+   filled slots snap to full opacity/solid border so the eye can tell at a
+   glance which of the 6 are usable. */
+.slot:not(.filled) { border-style: dashed; }
+.slot.filled { opacity: 1; background: var(--panel-bg-strong); }
+.slot.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(212,175,55,0.35), inset 0 0 0 1px rgba(212,175,55,0.25);
+}
 .slot .num {
   position: absolute; top: 1px; left: 4px;
   font-size: 0.6rem; color: var(--parchment-dim);
+}
+.slot .count {
+  position: absolute; top: 1px; right: 3px;
+  font-size: 0.58rem; color: var(--gold);
+  background: rgba(0,0,0,0.6); padding: 0 0.3em; border-radius: 3px;
+  line-height: 1.4;
 }
 .slot .meter {
   position: absolute; bottom: 2px; left: 4px; right: 4px; height: 3px;
   background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden;
 }
-.slot .meter i { display: block; height: 100%; background: var(--gold); }
+.slot .meter i { display: block; height: 100%; background: var(--gold); transition: width 0.2s linear; }
+/* plays once when the selected slot changes — via scroll wheel or number
+   key — so cycling visibly registers instead of the border silently
+   jumping to a new slot. */
+.slot.bump { animation: slot-bump 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.4); }
+@keyframes slot-bump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+/* a carried item whose meter (flashlight battery) is critically low pulses
+   red — same "running out" language as the low-health vignette. */
+.slot.low-battery { border-color: var(--blood); }
+.slot.low-battery .meter i { background: var(--blood); }
+.slot.low-battery { animation: low-battery-pulse 1s ease-in-out infinite; }
+/* .bump and .low-battery each set the `animation` shorthand, and a slot can
+   carry both classes at once (scrolling onto a low-battery flashlight) —
+   two separate rules setting `animation` on the same element don't merge,
+   only one wins. This compound rule (higher specificity, so it applies
+   deterministically) explicitly plays both together instead of silently
+   dropping one — the exact trap noted for .btn.primary + .reveal-play. */
+.slot.bump.low-battery {
+  animation: slot-bump 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.4), low-battery-pulse 1s ease-in-out infinite;
+}
+@keyframes low-battery-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(200,50,50,0.25); }
+  50%      { box-shadow: 0 0 14px rgba(200,50,50,0.6); }
+}
+/* plays once when an item is newly picked up / restocked into a slot */
+.slot .icon.pickup { animation: icon-pickup 0.5s ease; }
+@keyframes icon-pickup {
+  0%   { transform: scale(0.3); filter: brightness(2.2); }
+  55%  { transform: scale(1.3); filter: brightness(1.6); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
 
 /* ---- toast / caption ---- */
 #toast {
-  bottom: 30vh; left: 50%; transform: translateX(-50%);
-  font-size: 1.2rem; text-align: center;
-  transition: opacity 0.8s ease;
+  bottom: 30vh; left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  font-size: 1.15rem; text-align: center;
+  padding: 0.35em 1em;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  transition: opacity 0.4s ease, transform 0.4s ease;
   opacity: 0; white-space: nowrap;
 }
+#toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 #caption {
-  bottom: 12vh; left: 50%; transform: translateX(-50%);
+  bottom: 12vh; left: 50%;
+  transform: translateX(-50%) translateY(4px);
   font-size: 1rem; font-style: italic; color: #cbb;
   text-shadow: 0 0 6px #000;
-  transition: opacity 0.6s ease; opacity: 0;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  opacity: 0;
   text-align: center;
 }
+#caption.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---- big center warnings ---- */
 #big-warning {
-  top: 34%; left: 50%; transform: translate(-50%, -50%);
+  top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
   font-size: 4rem; font-weight: bold; color: var(--blood);
   text-shadow: 0 0 24px rgba(200,0,0,0.7), 0 0 4px #000;
   letter-spacing: 0.2em;
-  display: none;
-  animation: pulse-warning 0.4s infinite alternate;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+#big-warning.visible {
+  opacity: 1; transform: translate(-50%, -50%) scale(1);
+  animation: pulse-warning 0.4s 0.15s infinite alternate;
 }
 @keyframes pulse-warning {
   from { opacity: 1; transform: translate(-50%,-50%) scale(1); }
@@ -148,6 +302,15 @@ html, body {
   inset: 0;
   background: radial-gradient(ellipse at center, transparent 40%, rgba(160,0,0,0.55) 100%);
   opacity: 0; transition: opacity 0.35s ease;
+}
+/* below ~30% health the vignette gets a slow heartbeat-like brightness pulse
+   on top of whatever static opacity setHealth() already set — only the
+   `filter` property animates here, never touching `opacity`, so it can't
+   collide with the per-frame inline opacity or the transition above. */
+#hurt-vignette.critical { animation: heartbeat-pulse 1.1s ease-in-out infinite; }
+@keyframes heartbeat-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.4); }
 }
 #flash { inset: 0; opacity: 0; }
 #fade { inset: 0; background: #000; opacity: 0; transition: opacity 1s ease; }
@@ -322,47 +485,89 @@ html, body {
   background: var(--gold); box-shadow: 0 0 8px rgba(212,175,55,0.6); cursor: pointer;
 }
 
-/* ---- padlock modal ---- */
-#padlock {
-  inset: 0; display: none;
-  align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.7);
-  pointer-events: auto;
+/* ---- save code (menu) ---- */
+.save-code-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+  pointer-events: auto; width: 100%; max-width: 30rem;
 }
-#padlock.visible { display: flex; }
+.save-code-label {
+  color: var(--parchment-dim); font-size: 0.78rem; letter-spacing: 0.25em;
+}
+.save-code-row { display: flex; gap: 0.5rem; width: 100%; }
+.save-code-input {
+  flex: 1; min-width: 0;
+  font-family: 'Courier New', monospace; font-size: 0.85rem;
+  color: var(--parchment); background: rgba(10,8,6,0.6);
+  border: 1px solid rgba(215,195,160,0.3); border-radius: 4px;
+  padding: 0.5em 0.7em;
+}
+.save-code-input:focus { outline: none; border-color: var(--gold); }
+.btn.small { padding: 0.5em 1.2em; font-size: 0.9rem; }
+.save-code-msg { font-size: 0.85rem; min-height: 1.3em; }
+
+/* ---- modal overlays (padlock / paper / breaker) ----------------------
+   All three share one fade+rise-in treatment: the backdrop is always in
+   the DOM (needed so `display` stays `flex` for centering) but hidden via
+   opacity+visibility rather than `display:none`, so the inner panel can
+   transition instead of snapping on/off. `visibility` is delayed 0.25s on
+   the way out (matching the opacity transition) so it still stops
+   intercepting clicks the instant it's invisible, but isn't yanked out of
+   layout mid-fade on the way in. */
+#padlock, #paper, #breaker {
+  inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+#padlock.visible, #paper.visible, #breaker.visible {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: opacity 0.25s ease, visibility 0s linear 0s;
+}
+#padlock .body, #breaker .body, #paper .sheet {
+  transform: scale(0.94) translateY(10px);
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1.25);
+}
+#padlock.visible .body, #breaker.visible .body, #paper.visible .sheet {
+  transform: scale(1) translateY(0);
+}
+#paper.visible .sheet { transform: scale(1) translateY(0) rotate(-1.5deg); }
+
+/* ---- padlock modal ---- */
+#padlock { background: rgba(0,0,0,0.7); }
 #padlock .body {
-  background: #17130e;
-  border: 2px solid #6a5636;
-  border-radius: 10px;
+  background: var(--panel-bg-strong);
+  border: 1px solid rgba(212,175,55,0.3);
+  border-radius: 12px;
   padding: 2rem 2.5rem;
   display: flex; flex-direction: column; align-items: center; gap: 1.2rem;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
 #padlock .title { color: var(--parchment); letter-spacing: 0.2em; font-size: 1.2rem; }
 #padlock .wheels { display: flex; gap: 0.8rem; }
 .wheel { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
 .wheel button {
   pointer-events: auto; cursor: pointer;
-  background: #2a2118; color: var(--parchment);
-  border: 1px solid #6a5636; border-radius: 4px;
+  background: rgba(255,255,255,0.04); color: var(--parchment);
+  border: 1px solid var(--panel-border); border-radius: 4px;
   width: 2.6rem; height: 1.6rem; font-size: 1rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.wheel button:hover { background: rgba(212,175,55,0.16); border-color: var(--gold); color: #fff; }
+.wheel button:active { background: rgba(212,175,55,0.3); }
 .wheel .digit {
   width: 2.6rem; height: 3rem;
-  background: #0b0906; color: var(--gold);
-  border: 1px solid #6a5636; border-radius: 4px;
+  background: rgba(0,0,0,0.5); color: var(--gold);
+  border: 1px solid var(--panel-border); border-radius: 4px;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.6);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.9rem;
 }
 #padlock .msg { color: var(--blood); min-height: 1.4em; font-size: 1rem; }
 
 /* ---- paper / book viewer ---- */
-#paper {
-  inset: 0; display: none;
-  align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.6);
-  pointer-events: auto;
-}
-#paper.visible { display: flex; }
+#paper { background: rgba(0,0,0,0.6); }
 #paper .sheet {
   background: #cdbb95;
   color: #241c10;
@@ -377,14 +582,187 @@ html, body {
 }
 #paper .sheet small { font-size: 0.9rem; color: #5c4d33; display: block; margin-top: 1rem; }
 
+/* ---- circuit breaker puzzle ---- */
+#breaker { background: rgba(0,0,0,0.75); }
+#breaker .body {
+  background: var(--panel-bg-strong);
+  border: 1px solid rgba(212,175,55,0.3);
+  border-radius: 12px;
+  padding: 2rem 2.5rem;
+  display: flex; flex-direction: column; align-items: center; gap: 1rem;
+  max-width: 32rem;
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+#breaker .title { color: var(--gold); letter-spacing: 0.15em; font-size: 1.2rem; }
+#breaker .b-status { color: var(--parchment); font-size: 1.05rem; min-height: 1.4em; }
+.timer-wrap {
+  width: 100%; height: 6px; background: rgba(215,195,160,0.15);
+  border-radius: 3px; overflow: hidden;
+}
+.timer-bar {
+  height: 100%; width: 100%; background: var(--guiding);
+  transition: width 0.1s linear, background 0.3s ease;
+}
+.switch-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.6rem;
+}
+.switch-btn {
+  pointer-events: auto; cursor: pointer;
+  width: 3.4rem; height: 3.4rem;
+  background: rgba(255,255,255,0.04); color: var(--parchment-dim);
+  border: 2px solid var(--panel-border); border-radius: 6px;
+  font-size: 1.1rem; font-weight: bold;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+              box-shadow 0.15s ease, transform 0.15s ease;
+}
+.switch-btn:hover:not(:disabled) { background: rgba(255,255,255,0.09); border-color: var(--parchment-dim); transform: translateY(-1px); }
+.switch-btn:disabled { cursor: default; opacity: 0.85; }
+.switch-btn.on {
+  background: rgba(126,200,255,0.25); border-color: var(--guiding); color: #fff;
+  box-shadow: 0 0 10px rgba(126,200,255,0.4);
+}
+.switch-btn.mystery {
+  border-color: var(--gold); color: var(--gold);
+  animation: mystery-pulse 1s ease-in-out infinite;
+}
+@keyframes mystery-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(212,175,55,0.2); }
+  50% { box-shadow: 0 0 14px rgba(212,175,55,0.5); }
+}
+#breaker .msg { color: var(--blood); min-height: 1.4em; font-size: 1rem; }
+
 /* ---- battery / objective ---- */
 #objective {
-  top: 9vh; left: 50%; transform: translateX(-50%);
-  color: var(--guiding); font-size: 1rem; letter-spacing: 0.1em;
-  text-shadow: 0 0 8px #000; opacity: 0.9;
+  top: 9vh; left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  color: var(--guiding); font-size: 0.95rem; letter-spacing: 0.1em;
+  text-shadow: 0 0 8px #000;
+  padding: 0.3em 1em;
+  background: rgba(10,14,18,0.4);
+  border: 1px solid rgba(126,200,255,0.22);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
+#objective.visible { opacity: 0.95; transform: translateX(-50%) translateY(0); }
 
 @media (max-width: 720px) {
   .screen h1 { font-size: 2rem; }
   #big-warning { font-size: 2.2rem; }
+}
+
+/* ---- danger vignette (setDanger 0..1; separate from hurt-vignette) ---- */
+#danger-vignette {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(120, 8, 8, 0.55) 88%, rgba(30, 0, 0, 0.8) 100%);
+}
+#danger-vignette.high { animation: dangerPulse 0.9s ease-in-out infinite; }
+@keyframes dangerPulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.5); }
+}
+
+/* ---- stamina bar (above the hotbar; hidden while full) ---- */
+#stamina {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  width: 210px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  overflow: hidden;
+}
+#stamina.visible { opacity: 1; }
+#stamina i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #b9cf9d, #e8ddb0);
+  transition: width 0.1s linear;
+}
+#stamina.spent i { background: linear-gradient(90deg, #a34430, #c96a3a); }
+
+/* ---- loading / intro overlay ---- */
+#loading {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #060505;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.6s ease, visibility 0.6s;
+}
+#loading.visible { opacity: 1; visibility: visible; }
+.loading-inner { position: relative; text-align: center; max-width: 520px; padding: 0 24px; }
+.loading-doors {
+  position: absolute;
+  inset: -70px -60px;
+  overflow: hidden;
+  opacity: 0.16;
+  pointer-events: none;
+}
+.loading-doors .leaf {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: linear-gradient(180deg, #2a2019, #17110c);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+}
+.loading-doors .leaf.left  { left: 0;  transform-origin: left center;  animation: leafL 2.6s ease-in-out infinite alternate; }
+.loading-doors .leaf.right { right: 0; transform-origin: right center; animation: leafR 2.6s ease-in-out infinite alternate; }
+@keyframes leafL { from { transform: translateX(0); } to { transform: translateX(-14%); } }
+@keyframes leafR { from { transform: translateX(0); } to { transform: translateX(14%); } }
+.loading-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.5em;
+  color: var(--gold);
+  opacity: 0.85;
+  margin-bottom: 10px;
+}
+.loading-title {
+  font-size: 2.2rem;
+  letter-spacing: 0.28em;
+  color: #e8ddc4;
+  margin: 0 0 26px;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+.loading-bar {
+  width: 240px;
+  height: 3px;
+  margin: 0 auto 18px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.loading-bar i {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  animation: loadShimmer 1.4s ease-in-out infinite;
+}
+@keyframes loadShimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(350%); }
+}
+.loading-tip {
+  font-size: 0.82rem;
+  color: rgba(232, 221, 196, 0.55);
+  letter-spacing: 0.06em;
+  font-style: italic;
 }

@@ -170,19 +170,58 @@ class SfxEngine {
     };
   }
 
-  // The background "soundtrack" — a quiet detuned drone plus airy wind
-  // noise, always present. `setTension(level)` fades in a second, more
-  // dissonant drone layer (a minor-second interval against the base) so
-  // dark/dangerous rooms read as more unsettling without a hard cut.
+  // ---- ambient one-shot events (routed to a caller-supplied bus so they
+  // share the ambience gain + reverb). Each is guarded and randomized. ----
+  _ambientCreak(out, amp = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    const base = rand(55, 120);
+    this._osc({ type: 'sawtooth', freq: base, freqEnd: base * rand(1.6, 2.4), t0: t, dur: rand(0.5, 1.1), gain: 0.02 * amp, attack: 0.12, out });
+    this._noiseBurst({ t0: t, dur: 0.5, gain: 0.012 * amp, type: 'bandpass', freq: rand(700, 1200), q: 3, out });
+  }
+
+  _ambientThump(out, amp = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    this._osc({ type: 'sine', freq: 70, freqEnd: 34, t0: t, dur: 0.5, gain: 0.05 * amp, attack: 0.006, out });
+    this._noiseBurst({ t0: t, dur: 0.28, gain: 0.03 * amp, type: 'lowpass', freq: 180, freqEnd: 60, out });
+  }
+
+  _windGust(out, amp = 1) {
+    if (!this.ctx) return;
+    this._noiseBurst({ dur: rand(1.2, 2.2), gain: 0.05 * amp, type: 'bandpass', freq: 320, freqEnd: 620, q: 0.5, out });
+  }
+
+  _ambientGroan(out, amp = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    const f = rand(70, 110);
+    this._osc({ type: 'sawtooth', freq: f, freqEnd: f * 0.8, t0: t, dur: rand(1.4, 2.4), gain: 0.03 * amp, attack: 0.4, out });
+    this._osc({ type: 'sine', freq: f * 1.5, t0: t, dur: 1.2, gain: 0.015 * amp, attack: 0.5, out });
+  }
+
+  // The background "soundtrack": a layered low drone (root + detuned beating
+  // partner + a sub-octave for weight) and airy wind, always present. On top,
+  // a scheduler randomly emits creaks/groans/distant thumps/wind-gusts whose
+  // frequency and loudness scale with the current tension level, so calm
+  // rooms are near-silent and dangerous ones feel like the building is alive
+  // and settling around you. `setTension(level)` (0..1) both fades in a
+  // dissonant drone cluster and drives that event density. Handle exposes
+  // setTension, plus setVol/stop from _loopHandle.
   ambience() {
     if (!this.ctx) return null;
     const g = this.ctx.createGain();
     g.gain.value = 0.05;
     g.connect(this.master);
+
+    // layered low drone
     const o1 = this.ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 55;
     const o2 = this.ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 55.8;
-    o1.connect(g); o2.connect(g);
-    // slow airy noise
+    const oSub = this.ctx.createOscillator(); oSub.type = 'sine'; oSub.frequency.value = 27.5;
+    const oSubG = this.ctx.createGain(); oSubG.gain.value = 0.6;
+    o1.connect(g); o2.connect(g); oSub.connect(oSubG).connect(g);
+
+    // slow airy wind noise with a breathing LFO
     const wind = this.ctx.createBufferSource();
     wind.buffer = this._noise; wind.loop = true; wind.playbackRate.value = 0.3;
     const wf = this.ctx.createBiquadFilter();
@@ -193,36 +232,87 @@ class SfxEngine {
     lfo.connect(lfoG).connect(wg.gain);
     wind.connect(wf).connect(wg).connect(g);
 
-    // tension layer: dissonant, fades in via setTension()
+    // tension layer: dissonant minor-second cluster, fades in via setTension()
     const tensionG = this.ctx.createGain();
     tensionG.gain.value = 0;
     tensionG.connect(g);
     const t1 = this.ctx.createOscillator(); t1.type = 'sine'; t1.frequency.value = 61.5;
     const t2 = this.ctx.createOscillator(); t2.type = 'sine'; t2.frequency.value = 65.2;
-    t1.connect(tensionG); t2.connect(tensionG);
+    const t3 = this.ctx.createOscillator(); t3.type = 'triangle'; t3.frequency.value = 82.4;
+    t1.connect(tensionG); t2.connect(tensionG); t3.connect(tensionG);
 
-    o1.start(); o2.start(); wind.start(); lfo.start(); t1.start(); t2.start();
-    const handle = this._loopHandle([o1, o2, wind, lfo, t1, t2], g);
+    o1.start(); o2.start(); oSub.start(); wind.start(); lfo.start();
+    t1.start(); t2.start(); t3.start();
+
+    // randomized ambient events, scaled by tension
+    let tension = 0;
+    const eventBus = this.ctx.createGain();
+    eventBus.gain.value = 1;
+    eventBus.connect(g);
+    this._sendReverb(eventBus, 0.5);
+    const tick = () => {
+      if (!this.ctx) return;
+      if (Math.random() < 0.12 + tension * 0.5) {
+        const r = Math.random();
+        const amp = 0.5 + tension * 0.8;
+        if (r < 0.4) this._ambientCreak(eventBus, amp);
+        else if (r < 0.7) this._ambientThump(eventBus, amp);
+        else if (r < 0.88) this._windGust(eventBus, amp);
+        else this._ambientGroan(eventBus, amp);
+      }
+    };
+    const timer = setInterval(tick, 2600);
+
+    const handle = this._loopHandle([o1, o2, oSub, wind, lfo, t1, t2, t3], g, timer);
     handle.setTension = (level) => {
       if (!this.ctx) return;
-      tensionG.gain.setTargetAtTime(clamp(level, 0, 1) * 0.11, this.now, 1.6);
+      const lv = clamp(level, 0, 1);
+      tension = lv;
+      tensionG.gain.setTargetAtTime(lv * 0.11, this.now, 1.6);
     };
     return handle;
   }
 
+  // Heartbeat: a lub-dub pulse the orchestrator drives up as danger rises or
+  // health drops. It self-schedules so the tempo can change live. Returns a
+  // handle:
+  //   setVol(v)        overall loudness (~0..1; default 0.9)
+  //   setRate(bpm)     beats per minute, clamped 30..200 (default 66)
+  //   setIntensity(x)  0..1 — harder, higher-pitched, more panicked beats,
+  //                    adding a thud on top past ~0.6
+  //   stop()
   heartbeatLoop() {
     if (!this.ctx) return null;
     const g = this.ctx.createGain();
     g.gain.value = 0.9;
     g.connect(this.master);
+    let bpm = 66;
+    let intensity = 0.35;
+    let stopped = false;
+    let timer = null;
     const beat = () => {
+      if (stopped || !this.ctx) return;
       const t = this.now + 0.02;
-      this._osc({ type: 'sine', freq: 58, freqEnd: 40, t0: t, dur: 0.14, gain: 0.5, out: g });
-      this._osc({ type: 'sine', freq: 52, freqEnd: 38, t0: t + 0.22, dur: 0.12, gain: 0.35, out: g });
+      const amp = 0.3 + intensity * 0.5;
+      const pitch = 1 + intensity * 0.5;
+      this._osc({ type: 'sine', freq: 58 * pitch, freqEnd: 40 * pitch, t0: t, dur: 0.14, gain: 0.5 * amp, out: g });        // lub
+      this._osc({ type: 'sine', freq: 52 * pitch, freqEnd: 38 * pitch, t0: t + 0.2, dur: 0.12, gain: 0.35 * amp, out: g }); // dub
+      if (intensity > 0.6) {
+        this._noiseBurst({ t0: t, dur: 0.05, gain: 0.06 * intensity, type: 'lowpass', freq: 220, out: g }); // panicked thud
+      }
+      timer = setTimeout(beat, 60000 / clamp(bpm, 30, 200));
     };
     beat();
-    const timer = setInterval(beat, 900);
-    return this._loopHandle([], g, timer);
+    return {
+      setVol: (v) => { g.gain.value = v; },
+      setRate: (b) => { bpm = clamp(b, 30, 200); },
+      setIntensity: (x) => { intensity = clamp(x, 0, 1); },
+      stop: () => {
+        stopped = true;
+        if (timer) clearTimeout(timer);
+        setTimeout(() => { try { g.disconnect(); } catch (_) { /* already gone */ } }, 60);
+      },
+    };
   }
 
   // Rush/Ambush's roar: TWO layers, like the real game's separately-recorded
@@ -322,16 +412,45 @@ class SfxEngine {
   }
 
   // ---- one-shots ---------------------------------------------------
+  // The horror creak: two detuned sawtooth "hinge" swells plus a woody
+  // rasp. Pitch/length are randomized per call so repeated doors down a long
+  // hallway never sound identical.
   doorCreak(vol = 1) {
+    if (!this.ctx) return;
     const t = this.now;
-    this._osc({ type: 'sawtooth', freq: 70, freqEnd: 160, t0: t, dur: 0.7, gain: 0.05 * vol, attack: 0.08 });
-    this._osc({ type: 'sawtooth', freq: 92, freqEnd: 210, t0: t + 0.08, dur: 0.55, gain: 0.035 * vol, attack: 0.1 });
-    this._noiseBurst({ t0: t, dur: 0.6, gain: 0.03 * vol, type: 'bandpass', freq: 900, q: 2 });
+    const base = rand(60, 84);
+    this._osc({ type: 'sawtooth', freq: base, freqEnd: base * rand(2.0, 2.6), t0: t, dur: rand(0.55, 0.8), gain: 0.05 * vol, attack: 0.08 });
+    this._osc({ type: 'sawtooth', freq: base * 1.3, freqEnd: base * 3, t0: t + 0.08, dur: 0.55, gain: 0.035 * vol, attack: 0.1 });
+    this._noiseBurst({ t0: t, dur: 0.6, gain: 0.03 * vol, type: 'bandpass', freq: rand(800, 1050), q: 2 });
   }
 
   doorSlam(vol = 1) {
-    this._noiseBurst({ dur: 0.25, gain: 0.5 * vol, freq: 300, freqEnd: 60 });
-    this._osc({ type: 'sine', freq: 70, freqEnd: 35, dur: 0.3, gain: 0.5 * vol });
+    if (!this.ctx) return;
+    const t = this.now;
+    this._noiseBurst({ t0: t, dur: 0.25, gain: 0.5 * vol, type: 'lowpass', freq: 300, freqEnd: 60 });
+    this._osc({ type: 'sine', freq: 70, freqEnd: 35, t0: t, dur: 0.3, gain: 0.5 * vol });
+    // sharp wood crack on impact + a longer sub tail so the slam has weight
+    this._noiseBurst({ t0: t, dur: 0.08, gain: 0.18 * vol, type: 'highpass', freq: 1800 });
+    this._osc({ type: 'sine', freq: 44, freqEnd: 30, t0: t + 0.02, dur: 0.45, gain: 0.25 * vol });
+  }
+
+  // A cleaner, non-creaky door swing (latch click + low swing whoosh) for
+  // doors that open normally — distinct from the horror doorCreak.
+  doorOpen(vol = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    this._noiseBurst({ t0: t, dur: 0.04, gain: 0.14 * vol, type: 'highpass', freq: 2600 }); // latch
+    this._noiseBurst({ t0: t + 0.03, dur: 0.4, gain: 0.06 * vol, type: 'bandpass', freq: 220, freqEnd: 520, q: 0.5 }); // swing
+    this._osc({ type: 'sine', freq: 80, freqEnd: 120, t0: t + 0.03, dur: 0.35, gain: 0.05 * vol, attack: 0.05 });
+  }
+
+  doorClose(vol = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    this._noiseBurst({ t0: t, dur: 0.3, gain: 0.06 * vol, type: 'bandpass', freq: 500, freqEnd: 200, q: 0.5 }); // swing
+    this._noiseBurst({ t0: t + 0.26, dur: 0.09, gain: 0.22 * vol, type: 'lowpass', freq: 240, freqEnd: 90 }); // thud
+    this._noiseBurst({ t0: t + 0.28, dur: 0.03, gain: 0.12 * vol, type: 'highpass', freq: 2800 }); // latch click
+    this._osc({ type: 'sine', freq: 70, freqEnd: 40, t0: t + 0.26, dur: 0.22, gain: 0.28 * vol });
   }
 
   doorLocked(vol = 1) {
@@ -389,11 +508,25 @@ class SfxEngine {
 
   closetOut() { this.doorCreak(0.6); }
 
-  whisper() {
+  // Breathy, unsettling, reverbed whisper — airy noise shaped by shifting
+  // vocal-formant bandpasses (two per "syllable") so it reads as a voice you
+  // can't quite make out, like Halt's/Screech's murmurs. `vol` scales it for
+  // distance. No handle: it's a short one-shot.
+  whisper(vol = 1) {
+    if (!this.ctx) return;
     const t = this.now;
-    for (let i = 0; i < 3; i++) {
-      this._noiseBurst({ t0: t + i * 0.22, dur: 0.18, gain: 0.14, type: 'bandpass', freq: rand(1400, 2400), q: 3 });
+    const bus = this.ctx.createGain();
+    bus.gain.value = vol;
+    bus.connect(this.master);
+    this._sendReverb(bus, 0.6);
+    const syllables = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < syllables; i++) {
+      const st = t + i * rand(0.16, 0.28);
+      this._noiseBurst({ t0: st, dur: rand(0.1, 0.2), gain: 0.11, type: 'bandpass', freq: rand(500, 900), q: 5, out: bus });   // 1st formant
+      this._noiseBurst({ t0: st, dur: rand(0.08, 0.16), gain: 0.07, type: 'bandpass', freq: rand(1400, 2600), q: 8, out: bus }); // 2nd formant
     }
+    // continuous airy breath underneath
+    this._noiseBurst({ t0: t, dur: syllables * 0.24, gain: 0.04, type: 'highpass', freq: 4000, out: bus });
   }
 
   psst() {
@@ -451,9 +584,103 @@ class SfxEngine {
   // Ambush's scream: a Shepard tone (illusion of endlessly rising pitch),
   // matching the real game's use of a similarly disorienting effect.
   ambushScream() {
+    if (!this.ctx) return;
     const t = this.now;
     this._shepardRise({ t0: t, dur: 1.6, gainMul: 0.22, sweet: 700 });
     this._noiseBurst({ t0: t, dur: 1.4, gain: 0.12, type: 'bandpass', freq: 1800, q: 0.6 });
+  }
+
+  // Seek's chase ("Here I Come"): a building, distorted roar that SUSTAINS for
+  // the whole chase. Sub-bass foundation + distorted mid roar + a driving
+  // tremolo pulse. Returns a handle:
+  //   setVol(v)        overall loudness (starts at 0 — ramp it up)
+  //   setIntensity(x)  0..1 — as Seek closes / the chase escalates, opens the
+  //                    filter, drives distortion harder and speeds the pulse
+  //                    so the dread keeps mounting
+  //   stop()
+  seekRumble() {
+    if (!this.ctx) return null;
+    const outG = this.ctx.createGain();
+    outG.gain.value = 0;
+    const tremolo = this.ctx.createGain();
+    tremolo.gain.value = 1;
+    outG.connect(tremolo).connect(this.master);
+    this._sendReverb(tremolo, 0.35);
+    const lfo = this.ctx.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 6;
+    const lfoG = this.ctx.createGain(); lfoG.gain.value = 0.25;
+    lfo.connect(lfoG).connect(tremolo.gain);
+
+    // sub-bass foundation
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine'; sub.frequency.value = 30;
+    const subG = this.ctx.createGain(); subG.gain.value = 0.5;
+    sub.connect(subG).connect(outG);
+
+    // distorted mid roar (filtered noise + a snarling saw, through a shaper)
+    const ws = this.ctx.createWaveShaper();
+    ws.curve = this._distortionCurve(24);
+    ws.oversample = '2x';
+    ws.connect(outG);
+    const roar = this.ctx.createBufferSource();
+    roar.buffer = this._noise; roar.loop = true; roar.playbackRate.value = 0.7;
+    const roarF = this.ctx.createBiquadFilter();
+    roarF.type = 'bandpass'; roarF.frequency.value = 300; roarF.Q.value = 0.9;
+    roar.connect(roarF).connect(ws);
+    const saw = this.ctx.createOscillator();
+    saw.type = 'sawtooth'; saw.frequency.value = 44;
+    const sawG = this.ctx.createGain(); sawG.gain.value = 0.4;
+    saw.connect(sawG).connect(ws);
+
+    sub.start(); roar.start(); saw.start(); lfo.start();
+    const nodes = [sub, roar, saw, lfo];
+    return {
+      setVol: (v) => { outG.gain.value = v; },
+      setIntensity: (x) => {
+        if (!this.ctx) return;
+        const xx = clamp(x, 0, 1);
+        const now = this.now;
+        roarF.frequency.setTargetAtTime(300 + xx * 1400, now, 0.3);
+        lfo.frequency.setTargetAtTime(5 + xx * 9, now, 0.3);
+        lfoG.gain.setTargetAtTime(0.15 + xx * 0.35, now, 0.3);
+        sawG.gain.setTargetAtTime(0.3 + xx * 0.5, now, 0.3);
+      },
+      stop: () => {
+        for (const n of nodes) { try { n.stop(); } catch (_) { /* already stopped */ } }
+        setTimeout(() => { try { outG.disconnect(); } catch (_) { /* already gone */ } }, 60);
+      },
+    };
+  }
+
+  // Timothy: the jump-scare spider from a drawer. Described as "rumbling
+  // thunder, then it comes" — a low rolling rumble, a burst of high skittering
+  // ticks, and a sharp distorted screech chirp as he lunges at the screen.
+  // Short one-shot; `vol` scales the whole hit. No handle.
+  timothyScreech(vol = 1) {
+    if (!this.ctx) return;
+    const t = this.now;
+    // low rolling thunder-rumble
+    this._noiseBurst({ t0: t, dur: 0.5, gain: 0.28 * vol, type: 'lowpass', freq: 120, freqEnd: 60, q: 1 });
+    this._osc({ type: 'sine', freq: 55, freqEnd: 30, t0: t, dur: 0.5, gain: 0.3 * vol });
+    // rapid skittering ticks (many legs)
+    for (let i = 0; i < 10; i++) {
+      this._noiseBurst({ t0: t + 0.3 + i * rand(0.015, 0.035), dur: 0.02, gain: 0.09 * vol, type: 'bandpass', freq: rand(2600, 5200), q: 8 });
+    }
+    // sharp distorted screech chirp on the lunge
+    const sc = this.ctx.createOscillator();
+    sc.type = 'sawtooth';
+    sc.frequency.setValueAtTime(2400, t + 0.32);
+    sc.frequency.exponentialRampToValueAtTime(900, t + 0.55);
+    const scg = this.ctx.createGain();
+    scg.gain.setValueAtTime(0.0001, t + 0.32);
+    scg.gain.exponentialRampToValueAtTime(0.28 * vol, t + 0.35);
+    scg.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    const ws = this.ctx.createWaveShaper();
+    ws.curve = this._distortionCurve(20);
+    sc.connect(ws).connect(scg).connect(this.master);
+    this._sendReverb(scg, 0.25);
+    sc.start(t + 0.32);
+    sc.stop(t + 0.65);
   }
 
   whoosh(vol = 1) {
@@ -504,9 +731,45 @@ class SfxEngine {
     this._osc({ type: 'sine', freq: 990, t0: t + 0.12, dur: 0.35, gain: 0.07 });
   }
 
-  step(crouched) {
+  // Footstep. `surface` tunes the timbre: wood/tile/metal are sharp and
+  // bright, carpet/dirt are soft and dull. Defaults to 'wood' so existing
+  // callers using step(crouched) are unchanged. Crouching stays silent.
+  step(crouched, surface = 'wood') {
     if (crouched) return; // crouching is silent (the Figure cares)
-    this._noiseBurst({ dur: 0.07, gain: rand(0.04, 0.07), freq: rand(240, 380), freqEnd: 100 });
+    if (!this.ctx) return;
+    const t = this.now;
+    switch (surface) {
+      case 'carpet':
+      case 'dirt':
+        // soft, dull, no click
+        this._noiseBurst({ t0: t, dur: 0.09, gain: rand(0.03, 0.05), type: 'lowpass', freq: rand(150, 240), freqEnd: 80, q: 0.6 });
+        break;
+      case 'tile':
+      case 'stone':
+      case 'concrete':
+        // hard, bright, with a sharp click
+        this._noiseBurst({ t0: t, dur: 0.05, gain: rand(0.04, 0.06), type: 'bandpass', freq: rand(500, 800), q: 1.4 });
+        this._noiseBurst({ t0: t, dur: 0.03, gain: rand(0.02, 0.035), type: 'highpass', freq: 3200 });
+        break;
+      case 'metal':
+        // ringing tap
+        this._noiseBurst({ t0: t, dur: 0.08, gain: rand(0.04, 0.06), type: 'bandpass', freq: rand(900, 1400), q: 3 });
+        this._osc({ type: 'triangle', freq: rand(1200, 1800), t0: t, dur: 0.06, gain: 0.02 });
+        break;
+      case 'wood':
+      default:
+        // woody knock with a faint top click
+        this._noiseBurst({ t0: t, dur: 0.07, gain: rand(0.04, 0.07), type: 'lowpass', freq: rand(260, 400), freqEnd: 110, q: 0.9 });
+        this._noiseBurst({ t0: t, dur: 0.03, gain: rand(0.015, 0.03), type: 'highpass', freq: 2200 });
+        break;
+    }
+  }
+
+  // a soft cloth/knee cue on entering/leaving crouch — quiet enough not to
+  // itself alert the Figure, just tactile feedback for the player
+  crouchToggle(down) {
+    const t = this.now;
+    this._noiseBurst({ t0: t, dur: 0.12, gain: 0.05, type: 'lowpass', freq: down ? 500 : 700, freqEnd: down ? 250 : 900 });
   }
 
   padClick() {
