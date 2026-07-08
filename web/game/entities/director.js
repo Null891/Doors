@@ -105,6 +105,16 @@ export class Director {
     if (this.figure.active) this.figure.onInteractionNoise(pos);
   }
 
+  // Footsteps, unlike interaction noise (door slams etc.), only carry so
+  // far — and sprinting carries much farther than walking.
+  onFootstep(pos, sprinting) {
+    if (!this.figure.active || !this.figure.mesh) return;
+    const r = CFG.figure.hearWalk * (sprinting ? 1.7 : 1);
+    const dx = pos.x - this.figure.mesh.position.x;
+    const dz = pos.z - this.figure.mesh.position.z;
+    if (dx * dx + dz * dz < r * r) this.figure.onInteractionNoise(pos);
+  }
+
   onBookRead() {
     if (this.figure.active) this.figure.onBookRead();
   }

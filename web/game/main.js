@@ -370,6 +370,11 @@ const gameApi = {
   scare: (kind) => hud.scare(kind),
   toggleHide, tryOpenDoor, collectGold, collectKey, toggleLights, pullLever, restorePower,
   onLibraryBookRead: () => director.onBookRead(),
+  // discrete footstep noise: crouched steps are silent to the Figure;
+  // sprinting carries much farther than walking.
+  onFootstep: (crouched) => {
+    if (!crouched) director.onFootstep(player.pos, player.sprinting);
+  },
 };
 ctx.game = gameApi;
 
@@ -419,7 +424,10 @@ hud.on.play = () => {
   Sfx.init();
   Sfx.resume();
   if (!ambienceHandle) ambienceHandle = Sfx.ambience();
-  // brief intro beat: the loading veil masks the world rebuild, then lifts
+  // brief intro beat: the loading veil masks the world rebuild, then lifts.
+  // hideScreens() first: the veil is pointer-events:none, so without it the
+  // still-visible menu button could be double-clicked into two startRun()s.
+  hud.hideScreens();
   hud.showLoading();
   setTimeout(() => {
     startRun();
@@ -580,7 +588,7 @@ function frame() {
       if (wheel) inventory.cycleSlot(Math.sign(wheel));
       if (Input.pressed('KeyF')) inventory.useSelected();
 
-      player.update(dt, world.getColliders(), null);
+      player.update(dt, world.getColliders(), gameApi);
 
       updateInteraction();
       if (Input.pressed('KeyE') && currentInteractable) {
