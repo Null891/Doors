@@ -99,6 +99,7 @@ let guidingLight = null; // { group, glow, glowMat, light, pedestal, phase }
 // one-shot Guiding Light narration beats, re-armed each run
 let narratedSeek = false;
 let narratedDark = false;
+let narratedRush = false;
 let reviveGraceUntil = 0; // brief invulnerability after a Starlight revive
 
 const ctx = { dt: 0, player, world, inventory, hud, input: Input, game: null };
@@ -468,6 +469,7 @@ function startRun() {
   requestAnimationFrame(() => requestAnimationFrame(() => hud.fadeTo(0, 1.2)));
   narratedSeek = false;
   narratedDark = false;
+  narratedRush = false;
   reviveGraceUntil = 0;
   setTimeout(() => {
     if (gameState === 'playing') hud.narrate('One hundred doors. Keep moving — I will light what I can.');
@@ -681,6 +683,10 @@ function frame() {
     if (director.seek.active && !narratedSeek) {
       narratedSeek = true;
       hud.narrate("Don't stop. Don't look back. RUN.");
+    }
+    if (director.sweeper.active && !narratedRush) {
+      narratedRush = true;
+      hud.narrate('Something is coming. Get out of its way — HIDE.');
     }
     if (curRoom && curRoom.dark && !curRoom.isLobby && !narratedDark) {
       narratedDark = true;

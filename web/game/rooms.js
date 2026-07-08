@@ -683,25 +683,42 @@ export function buildRoom(frame, opts) {
     }
   }
 
-  // ---- key pedestal ----
+  // ---- key placement: a center pedestal most of the time, but sometimes
+  // tucked on a small wall shelf instead, so locked rooms don't always
+  // telegraph the key from the doorway (the real game hides keys around
+  // the room, not just on display stands) ----
   if (locked && room.exitDoor) {
-    const kx = choice([-1, 1]) * (W / 2 - 4);
-    const kz = randInt(8, Math.max(9, length - 10));
-    const pedGeo = new THREE.BoxGeometry(1.6, 3, 1.6);
+    const onShelf = chance(0.35);
+    let kx, kz, keyY;
+    if (onShelf) {
+      const side = choice([-1, 1]);
+      kx = side * (W / 2 - 1.2);
+      kz = randInt(8, Math.max(9, length - 10));
+      keyY = 4.6;
+      // bracket shelf jutting from the side wall
+      b.box(side * (W / 2 - 0.9), kz, 1.8, 2.0, 4.0, 0.18, Mats.darkWood);
+      b.box(side * (W / 2 - 0.35), kz, 0.7, 0.25, 3.7, 0.5, Mats.darkWood);
+    } else {
+      kx = choice([-1, 1]) * (W / 2 - 4);
+      kz = randInt(8, Math.max(9, length - 10));
+      keyY = 3.4;
+      const pedGeo = new THREE.BoxGeometry(1.6, 3, 1.6);
+      const pp = toWorld(frame, kx, kz);
+      const pedMesh = new THREE.Mesh(pedGeo, Mats.frame);
+      pedMesh.position.set(pp.x, 1.5, pp.z);
+      b.geos.push(pedGeo);
+      group.add(pedMesh);
+    }
     const p = toWorld(frame, kx, kz);
-    const pedMesh = new THREE.Mesh(pedGeo, Mats.frame);
-    pedMesh.position.set(p.x, 1.5, p.z);
-    b.geos.push(pedGeo);
-    group.add(pedMesh);
 
     const keyGeo = new THREE.BoxGeometry(1.1, 0.2, 0.4);
-    const keyMesh = makeSpinner(b, group, room, frame, kx, kz, keyGeo, Mats.keyGold, 3.4, 1.4);
+    const keyMesh = makeSpinner(b, group, room, frame, kx, kz, keyGeo, Mats.keyGold, keyY, 1.4);
     b.geos.push(keyGeo);
 
     const pedestal = { mesh: keyMesh, doorNumber: number + 1, taken: false };
     room.keyPedestal = pedestal;
     room.interactables.push({
-      pos: { x: p.x, y: 3.4, z: p.z }, range: 4,
+      pos: { x: p.x, y: keyY, z: p.z }, range: 4,
       getLabel: () => pedestal.taken ? null : `Take Key (Door ${pedestal.doorNumber})`,
       interact: (ctx) => ctx.game.collectKey(pedestal, room),
     });
