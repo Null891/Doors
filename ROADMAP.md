@@ -117,17 +117,17 @@ hard-won lessons from real bugs in this codebase.**
 
 ## PRIORITY 2 — Missing DOORS content (most-requested authenticity)
 
-6. **El Goblino & Jeff NPCs in the shop** (door 52): friendly NPC blobs w/
-   idle sway + interaction barks ("El Goblino was here"); pure flavor, no AI.
-7. **The Dark Rooms item + lighter/candle**: candle reveals Screech sooner /
-   calms dark rooms; lighter as a cheap flashlight tier. Slot into the
-   existing 6-item economy (shop + lobby prices in config.js).
-8. **Herb of Viridis / Starlight Bottle equivalents**: one more heal tier and
-   a "revive once" rare item (real DOORS sells revives; here make it a very
-   expensive knob purchase in the lobby).
-9. **Locked-room variety**: real DOORS hides keys in drawers/under objects;
-   add 1–2 alternate key placements (on a shelf, inside a closet) so locked
-   rooms aren't always pedestal-in-the-open.
+6. ~~El Goblino & Jeff NPCs~~ **DONE** (commit a9d820e): both in the shop,
+   idle-swaying (`_swayProps`), rotating talk barks via interactables.
+7. ~~Candle~~ **DONE** (commit fd4c7e2): infinite warm toggle halo;
+   `hasLitLight()` covers flashlight or candle for Screech's reduced odds.
+   Remaining sub-item: a cheap "lighter" tier is still unbuilt (low value).
+8. ~~Starlight revive~~ **DONE** (commit ecd5295): 100-knob lobby exclusive,
+   one-shot revive at half HP + 2.5s grace in killPlayer. A mid-tier heal
+   (Herb of Viridis) is still unbuilt if wanted.
+9. ~~Locked-room variety~~ **DONE (partial)** (commit 55088eb): 35% of keys
+   now sit on a side-wall bracket shelf instead of the pedestal. An
+   inside-a-closet variant is still unbuilt.
 10. **Room templates**: an L-shaped double-turn, a small side-room alcove with
     loot, and a rare two-story balcony room (stairs = ramps; still AABB).
     Follow `TEMPLATES` in world.js + the footprint-overlap reroll pattern.
@@ -141,9 +141,8 @@ hard-won lessons from real bugs in this codebase.**
 13. **Chandeliers/sconces/grand-hall dressing** (env agent died researching
     this): pendant fixtures in `GrandHall` template rooms (length ≥ 64),
     wall sconces between paintings, columns/pilasters; all candela-scale.
-14. **Window rooms**: occasional curtained windows with cold moonlight shafts
-    (a dim blue rect + volumetric-ish plane), matching DOORS' window rooms —
-    also gives Ambient's silhouette a natural frame.
+14. ~~Window rooms~~ **DONE** (commit a9d820e): 18% of lit regular rooms get
+    a tall curtained window + cold moonlight pool.
 15. **Ceiling variety**: beams, cracks, an occasional hole with dust shaft.
 16. **Sound-reactive lamp flicker**: lamps subtly dip when thunder/whisper
     beats fire (LightingService-style mood sync).
@@ -169,12 +168,11 @@ hard-won lessons from real bugs in this codebase.**
 ## PRIORITY 5 — Audio & narrative seasoning
 
 22. ~~Heartbeat loop~~ **DONE** (commit b7f768e).
-23. **Guiding Light / Curious Light narration**: real DOORS shows soft
-    letter-by-letter guidance text after deaths and at set pieces. Add a
-    `hud.narrate(text)` letter-reveal caption in the Guiding Light gold, used
-    on first Rush death, first locked room, Seek intro, and the win.
-24. **Entity-specific death quotes** on the death screen (wiki has canonical
-    Guiding Light hints per entity — paraphrase, don't copy verbatim).
+23. ~~Guiding Light narration~~ **DONE** (commit a9d820e, 55088eb):
+    `hud.narrate()` letter-reveal, fired on run start, first dark room,
+    first sweeper warn, Seek eruption, and Starlight revive.
+24. ~~Entity-specific death quotes~~ **DONE** (commit a9d820e):
+    `GUIDING_QUOTES` in main.js, letter-revealed on the death screen.
 25. **Music stingers**: the shop's calm loop ("Jeff's Jingle" vibe), the
     library's tense drone, elevator win fanfare — all synthesized.
 
