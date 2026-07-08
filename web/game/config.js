@@ -98,8 +98,8 @@ export const CFG = {
     damage: 60,
   },
   dupe: {
-    minRoom: 18,
-    chance: 0.13,
+    minRoom: 11,   // false doors start appearing just after door 10
+    chance: 0.16,  // kept rare so it never becomes repetitive
     damage: 40,
   },
   jack: {

@@ -11,7 +11,6 @@ import { Halt } from './halt.js';
 import { Figure } from './figure.js';
 import { Seek } from './seek.js';
 import { AmbientScares } from './ambient.js';
-import { maybeAddDupeDoor } from './dupe.js';
 import { updateJack, resetJack } from './jack.js';
 import { updateTimothy, resetTimothy } from './timothy.js';
 import { initLibrary } from './library.js';
@@ -63,7 +62,8 @@ export class Director {
     }
     if (this.seek.active) return;
 
-    maybeAddDupeDoor(room);
+    // (False/Dupe doors are now built into the room's far wall at generation
+    // time — see buildFalseDoor in rooms.js — so there's no per-door roll here.)
 
     if (!this.sweeper.active) {
       const recentRooms = ctx.world.getActiveRooms().slice(-2);

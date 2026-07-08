@@ -56,6 +56,8 @@ export class World {
     for (const r of this.rooms) {
       for (const c of r.colliders) out.push(c);
       if (r.exitDoor && !r.exitDoor.opened) out.push(r.exitDoor.collider);
+      // a closed false door blocks its doorway just like the real exit
+      if (r.falseDoor && !r.falseDoor.opened) out.push(r.falseDoor.collider);
     }
     return out;
   }

@@ -14,6 +14,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { CFG } from './config.js';
 import { Mats } from './textures.js';
+import { Sfx } from './audio.js';
 import { rand, randInt, chance, choice, damp, toWorld, fwdOf, rightOf, frameAt } from './utils.js';
 
 const WALL_T = 1;       // wall thickness
@@ -133,6 +134,35 @@ function buildEndWall(b, localZ, xSpan, H, gap, material, colliders, frame) {
   if (headerH > 0.05) {
     b.box(offset, cz, width, WALL_T, height + headerH / 2, headerH, material);
     colliders.push(footprintAabb(frame, gL, gR, localZ, localZ + WALL_T, height, H));
+  }
+}
+
+// Like buildEndWall but supports MORE THAN ONE gap in the same wall (used
+// when a room has both a real exit and a false/Dupe door). Fills solid wall
+// between consecutive gaps and a header above each. With a single gap it is
+// identical to buildEndWall.
+function buildEndWallGaps(b, localZ, xSpan, H, gaps, material, colliders, frame) {
+  const [x0, x1] = xSpan;
+  const cz = localZ + WALL_T / 2;
+  const gs = gaps.filter(Boolean)
+    .map((g) => ({ gL: g.offset - g.width / 2, gR: g.offset + g.width / 2, height: g.height }))
+    .sort((a, b2) => a.gL - b2.gL);
+  let cursor = x0;
+  for (const g of gs) {
+    if (g.gL > cursor + 0.05) {
+      b.box((cursor + g.gL) / 2, cz, g.gL - cursor, WALL_T, H / 2, H, material);
+      colliders.push(footprintAabb(frame, cursor, g.gL, localZ, localZ + WALL_T, 0, H));
+    }
+    const headerH = H - g.height;
+    if (headerH > 0.05) {
+      b.box((g.gL + g.gR) / 2, cz, g.gR - g.gL, WALL_T, g.height + headerH / 2, headerH, material);
+      colliders.push(footprintAabb(frame, g.gL, g.gR, localZ, localZ + WALL_T, g.height, H));
+    }
+    cursor = Math.max(cursor, g.gR);
+  }
+  if (x1 > cursor + 0.05) {
+    b.box((cursor + x1) / 2, cz, x1 - cursor, WALL_T, H / 2, H, material);
+    colliders.push(footprintAabb(frame, cursor, x1, localZ, localZ + WALL_T, 0, H));
   }
 }
 
@@ -284,6 +314,90 @@ function buildExitDoor(b, group, frame, number, locked, doorLocalX, doorLocalZ, 
     : footprintAabb(frame, doorLocalX - gw / 2, doorLocalX + gw / 2, doorLocalZ - 0.3, doorLocalZ + 0.3, 0, gh);
 
   return { doorPivot: pivot, anim, number, locked, opened: false, collider, padlockMesh };
+}
+
+// A false (Dupe) exit door: identical frame/leaf/number to the real one, but
+// the far wall behind it opens onto a shallow dead-end recess instead of the
+// next room. Its collider blocks the doorway until you "open" it (mirroring
+// the real exit door), at which point it swings wide, eyes light up in the
+// dead end, and it bites — the DOORS Dupe. `number` is the SAME number the
+// real exit shows, so you can only tell them apart by picking wrong.
+function buildFalseDoor(b, group, frame, room, number, fakeX, length, H) {
+  const gw = CFG.room.doorW, gh = CFG.room.doorH;
+  const hingeSign = 1;
+  const doorLocalX = fakeX, doorLocalZ = length;
+  const hingeLocalX = doorLocalX - hingeSign * gw / 2;
+  const { pivot, baseYaw } = makeDoorPivot(frame, hingeLocalX, doorLocalZ, 0);
+  group.add(pivot);
+
+  const doorGeo = new THREE.BoxGeometry(gw - 0.4, gh - 0.4, 0.5);
+  const doorMesh = new THREE.Mesh(doorGeo, Mats.door());
+  doorMesh.position.set(hingeSign * (gw - 0.4) / 2, (gh - 0.4) / 2, 0);
+  pivot.add(doorMesh);
+  b.geos.push(doorGeo);
+  b.trackMat(doorMesh.material);
+
+  const plateGeo = new THREE.PlaneGeometry(1.6, 0.8);
+  const plateMat = Mats.numberPlate(number);
+  const plate = new THREE.Mesh(plateGeo, plateMat);
+  plate.position.set(hingeSign * (gw - 0.4) / 2, gh * 0.62, -0.32);
+  plate.rotation.y = Math.PI;
+  pivot.add(plate);
+  b.geos.push(plateGeo);
+  b.trackMat(plateMat);
+
+  const anim = { pivot, baseYaw, current: 0, target: 0, openAngle: hingeSign * OPEN_ANGLE };
+  room._doorAnims.push(anim);
+
+  // shallow dark dead-end recess behind the fake gap
+  const depth = 5;
+  const zc = length + depth / 2;
+  const dark = Mats.blackMatte;
+  b.box(fakeX, zc, gw, depth, -0.5, 1, dark);                    // floor
+  b.box(fakeX, zc, gw, depth, H + 0.5, 1, dark);                 // ceiling
+  b.box(fakeX - gw / 2, zc, WALL_T, depth, H / 2, H, dark);      // left recess wall
+  b.box(fakeX + gw / 2, zc, WALL_T, depth, H / 2, H, dark);      // right recess wall
+  b.box(fakeX, length + depth, gw, WALL_T, H / 2, H, dark);      // dead-end back wall
+  room.colliders.push(footprintAabb(frame, fakeX - gw / 2 - WALL_T, fakeX - gw / 2, length, length + depth, 0, H));
+  room.colliders.push(footprintAabb(frame, fakeX + gw / 2, fakeX + gw / 2 + WALL_T, length, length + depth, 0, H));
+  room.colliders.push(footprintAabb(frame, fakeX - gw / 2, fakeX + gw / 2, length + depth - WALL_T, length + depth, 0, H));
+
+  // faint eyes lurking at the dead end, revealed when the door opens
+  const eyeGeo = new THREE.SphereGeometry(0.24, 8, 6);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffe08a });
+  room._falseEyes = [];
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(eyeGeo, eyeMat);
+    const ep = toWorld(frame, fakeX + sx * 0.7, length + depth - 0.9);
+    e.position.set(ep.x, 4.6, ep.z);
+    e.visible = false;
+    group.add(e);
+    room._falseEyes.push(e);
+  }
+  b.geos.push(eyeGeo);
+  b.trackMat(eyeMat);
+
+  // door collider blocks the fake doorway until "opened" (like the real one)
+  const collider = footprintAabb(frame, doorLocalX - gw / 2, doorLocalX + gw / 2, doorLocalZ - 0.3, doorLocalZ + 0.3, 0, gh);
+  const falseDoor = { anim, opened: false, collider, number };
+  room.falseDoor = falseDoor;
+
+  const dp = toWorld(frame, doorLocalX, doorLocalZ);
+  room.interactables.push({
+    pos: { x: dp.x, y: 4, z: dp.z }, range: 5.5,
+    getLabel: () => falseDoor.opened ? null : `Open Door ${number}`,
+    interact: (ctx) => {
+      if (falseDoor.opened) return;
+      falseDoor.opened = true;
+      setDoorOpen(anim, true);
+      for (const e of room._falseEyes) e.visible = true;
+      Sfx.growl(0.7);
+      ctx.game.shake(1.2);
+      ctx.game.notify('A dead end — the wrong door!', '#c33');
+      ctx.player.damage(CFG.dupe.damage);
+      if (ctx.player.health <= 0) ctx.game.killPlayer('Dupe');
+    },
+  });
 }
 
 // ---- closets -------------------------------------------------------------
@@ -478,9 +592,30 @@ export function buildRoom(frame, opts) {
   const rightGap = exit === 'right' ? { offset: sideExitZ, width: CFG.room.doorW, height: CFG.room.doorH } : null;
   const endGap = exit === 'end' ? { offset: exitOffset, width: CFG.room.doorW, height: CFG.room.doorH } : null;
 
+  // ---- decide a false (Dupe) door: a second door in the far wall, SAME
+  // number as the real exit, opening onto a short dead-end. End-exit normal
+  // rooms only, past the min door, and kept rare so it never gets repetitive.
+  let falseDoorX = null;
+  if (exit === 'end' && !isShop && !isLibrary && !isElevator && !isLobby && !isGreenhouse
+      && number >= CFG.dupe.minRoom && chance(CFG.dupe.chance)) {
+    const step = CFG.room.doorW + 1;
+    for (const s of [1, -1]) {
+      const cand = exitOffset + s * step;
+      if (Math.abs(cand) + CFG.room.doorW / 2 <= W / 2 - 0.5 && Math.abs(cand - exitOffset) >= CFG.room.doorW) {
+        falseDoorX = cand;
+        break;
+      }
+    }
+  }
+  const fakeGap = falseDoorX != null ? { offset: falseDoorX, width: CFG.room.doorW, height: CFG.room.doorH } : null;
+
   buildSideWall(b, -W / 2, [fz0, length], H, leftGap, wallMat, room.colliders, frame, -1);
   buildSideWall(b, W / 2, [fz0, length], H, rightGap, wallMat, room.colliders, frame, 1);
-  buildEndWall(b, length, [-W / 2, W / 2], H, endGap, wallMat, room.colliders, frame);
+  if (fakeGap) {
+    buildEndWallGaps(b, length, [-W / 2, W / 2], H, [endGap, fakeGap], wallMat, room.colliders, frame);
+  } else {
+    buildEndWall(b, length, [-W / 2, W / 2], H, endGap, wallMat, room.colliders, frame);
+  }
 
   // ---- lamps ----
   const lampCount = Math.max(1, Math.floor(length / 18));
@@ -615,6 +750,9 @@ export function buildRoom(frame, opts) {
     };
     doorInteractable.pos.y = 4;
     room.interactables.push(doorInteractable);
+
+    // ---- false (Dupe) door: identical number, dead-end recess ----
+    if (fakeGap) buildFalseDoor(b, group, frame, room, number + 1, falseDoorX, length, H);
   } else {
     const p = toWorld(frame, 0, length - 3);
     room.exitFrame = frameAt(p.x, p.z, frame.dir);
