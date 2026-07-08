@@ -202,6 +202,64 @@ export function breakLamp(lampRec) {
   if (lampRec.light) lampRec.light.intensity = 0;
 }
 
+// A hanging chandelier — the hotel's grand-hall centerpiece. Chain + tiered
+// brass ring studded with candle "bulbs" and a warm PointLight. Returns a
+// lamp-like record (mesh = one representative bulb) so it toggles/breaks
+// through the same room-lights machinery as a plain lamp.
+function makeChandelier(b, group, frame, localX, localZ, H) {
+  const p = toWorld(frame, localX, localZ);
+  const topY = H - 0.2;
+  // chain
+  const chainGeo = new THREE.CylinderGeometry(0.08, 0.08, 3.2, 6);
+  const chain = new THREE.Mesh(chainGeo, Mats.frame);
+  chain.position.set(p.x, topY - 1.6, p.z);
+  b.geos.push(chainGeo);
+  group.add(chain);
+  // brass ring
+  const ringGeo = new THREE.TorusGeometry(1.7, 0.14, 6, 16);
+  const ring = new THREE.Mesh(ringGeo, Mats.brass);
+  ring.rotation.x = Math.PI / 2;
+  const ringY = topY - 3.2;
+  ring.position.set(p.x, ringY, p.z);
+  b.geos.push(ringGeo);
+  group.add(ring);
+  // candle bulbs around the ring
+  const bulbGeo = new THREE.SphereGeometry(0.28, 8, 6);
+  let repMesh = null;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const bp = toWorld(frame, localX + Math.cos(a) * 1.7, localZ + Math.sin(a) * 1.7);
+    const bulb = new THREE.Mesh(bulbGeo, Mats.bulbOn);
+    bulb.position.set(bp.x, ringY + 0.35, bp.z);
+    group.add(bulb);
+    if (!repMesh) repMesh = bulb;
+  }
+  b.geos.push(bulbGeo);
+  // hung a little below the ring so the pool falls into the room, not as a
+  // hotspot on the ceiling right above it
+  const light = new THREE.PointLight(0xffe0b0, LAMP_BASE_INT * 0.85, 44, 1.4);
+  light.position.set(p.x, ringY - 1.4, p.z);
+  group.add(light);
+  return { mesh: repMesh, light, broken: false, dark: false, dimInt: 0 };
+}
+
+// A wall sconce: a small brass bracket with an emissive flame element. Glow
+// only (no per-sconce light — keeps grand rooms from washing out and stays
+// cheap), placed in pools along the walls between paintings.
+function addSconce(b, group, frame, localX, localZ, side, dark) {
+  const inward = -side;
+  b.box(localX + inward * 0.25, localZ, 0.5, 0.5, 6.2, 0.6, Mats.brass); // bracket
+  const flameGeo = new THREE.SphereGeometry(0.32, 8, 6);
+  const flameMat = new THREE.MeshBasicMaterial({ color: dark ? 0x24304e : 0xffca73 });
+  const fp = toWorld(frame, localX + inward * 0.55, localZ);
+  const flame = new THREE.Mesh(flameGeo, flameMat);
+  flame.scale.set(1, 1.5, 1);
+  flame.position.set(fp.x, 6.5, fp.z);
+  b.geos.push(flameGeo);
+  b.mats.push(flameMat);
+  group.add(flame);
+}
+
 export function setRoomLightsOn(room, on) {
   room.lightsOn = on;
   for (const lamp of room.lights) {
@@ -681,14 +739,30 @@ export function buildRoom(frame, opts) {
   }
 
   // ---- lamps ----
+  // Long, non-dark halls become "grand halls" with a hanging chandelier at
+  // their centre instead of a plain ceiling lamp — the hotel's showpiece look.
+  const isGrand = length >= 60 && !dark && !isGreenhouse && !isElevator;
   const lampCount = Math.max(1, Math.floor(length / 18));
   for (let i = 0; i < lampCount; i++) {
     const z = (length * (i + 0.5)) / lampCount;
-    room.lights.push(makeLamp(b, group, frame, 0, z, H, dark));
+    const isCentre = i === Math.floor(lampCount / 2);
+    if (isGrand && isCentre) room.lights.push(makeChandelier(b, group, frame, 0, z, H));
+    else room.lights.push(makeLamp(b, group, frame, 0, z, H, dark));
   }
   if (isShop || isLobby || isElevator) {
     room.lights.push(makeLamp(b, group, frame, -W / 4, length / 2, H, false));
     room.lights.push(makeLamp(b, group, frame, W / 4, length / 2, H, false));
+  }
+
+  // Wall sconces in normal hotel rooms — a warm glow pool every ~14 units
+  // along each side wall (skipped in the greenhouse and special rooms).
+  if (!isGreenhouse && !isShop && !isLibrary && !isElevator && !isLobby) {
+    for (let z = 10; z < length - 6; z += 14) {
+      if (exit === 'left' && Math.abs(z - sideExitZ) < 6) continue;
+      addSconce(b, group, frame, -W / 2, z, -1, dark);
+      if (exit === 'right' && Math.abs(z - sideExitZ) < 6) continue;
+      addSconce(b, group, frame, W / 2, z, 1, dark);
+    }
   }
 
   // ---- shop NPCs: Jeff behind his counter, El Goblino lounging nearby ----
