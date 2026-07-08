@@ -51,17 +51,20 @@ hard-won lessons from real bugs in this codebase.**
 - **Entities**: Rush, Ambush (audio-only warning, breaks lights mid-charge),
   Screech (look-at-to-survive; lit flashlight lowers odds), Eyes (scatter on
   door-open), Halt (corridor-chase: TURN AROUND / RUN AWAY rounds), Figure
-  (blind, hearing-based, library + patrol, stay-still closet sniff), Dupe
-  (fake doors), Jack (closet scare, no damage), **Seek** (breadcrumb-trail
-  chase with grabbing-arm wall dressing, 2 rolled doors/run: ~30s and ~60s-70s),
-  **Timothy** (spider closet jumpscare, hard-floored nibble), **Ambient scares**
-  (doorway silhouette, watching portrait eyes, whisper+dim, darting shadow).
-- **Rooms**: procedural hotel (wallpaper/carpet/wainscot palettes tuned to
-  DOORS), lobby w/ broken elevator + reception desk + bell + plant, Greenhouse
-  90–99 (mossy walls, vines, planters, no carpet/paintings), furniture pool
-  (couch/table/shelf) in leftover closet slots, Library (door 50) code hunt +
-  padlock, Jeff's Shop (door 52) now selling all 6 items, Electrical room
-  (door 100) with 10-switch hunt + 3-round memory breaker + mystery switch.
+  (blind, hearing-based, library + patrol, stay-still closet sniff), **Dupe /
+  false doors** (a SECOND far-wall door beside the real exit with the IDENTICAL
+  number, opening onto a dark dead-end recess + bite; past door 10, ~16% of
+  end-exit rooms — buildFalseDoor in rooms.js), Jack (closet scare, no damage),
+  **Seek** (breadcrumb-trail chase, 2 rolled doors/run), **Timothy** (spider
+  closet jumpscare), **Ambient scares** (silhouette, portrait eyes, whisper+dim).
+- **Rooms**: procedural hotel (palettes tuned to DOORS), lobby w/ broken
+  elevator + reception desk + SEALED back wall, Greenhouse 90–99 (mossy walls,
+  vines, planters), furniture pool (dresser/couch/table/shelf) with COLLIDERS,
+  **searchable dressers** (the DOORS loot loop: gold/item/dust/rare-Timothy,
+  noise alerts the Figure), **chandeliers** in length≥60 grand halls + glowing
+  **wall sconces**, moonlit windows, Library (door 50) code hunt + padlock,
+  Jeff's Shop x3 (doors 22/52/78) + El Goblino, Electrical room (door 100)
+  breaker puzzle. Dark rooms hold a dim blue gloom (navigable, not pitch black).
 - **Systems**: 6-slot hotbar w/ scroll cycling, gold→knobs economy, lobby knob
   shop, save-code export/import (checksummed), Guiding-Light key hint after
   `CFG.guidingLightDelay`, flashlight low-battery flicker, bandage/battery
@@ -138,9 +141,9 @@ hard-won lessons from real bugs in this codebase.**
 
 ## PRIORITY 3 — Environment & rendering polish
 
-13. **Chandeliers/sconces/grand-hall dressing** (env agent died researching
-    this): pendant fixtures in `GrandHall` template rooms (length ≥ 64),
-    wall sconces between paintings, columns/pilasters; all candela-scale.
+13. ~~Chandeliers/sconces/grand-hall dressing~~ **DONE** (commit b99cfc6):
+    chandeliers in length≥60 halls, glowing wall sconces in normal rooms.
+    (Columns/pilasters still unbuilt if wanted.)
 14. ~~Window rooms~~ **DONE** (commit a9d820e): 18% of lit regular rooms get
     a tall curtained window + cold moonlight pool.
 15. **Ceiling variety**: beams, cracks, an occasional hole with dust shaft.
