@@ -796,3 +796,72 @@ html, body {
   color: #e8cf7a;
   text-shadow: 0 0 12px rgba(212, 175, 55, 0.5);
 }
+
+/* ---- health bar (bottom-left, always visible in play) ---- */
+#health {
+  position: absolute;
+  left: 20px;
+  bottom: 24px;
+  display: none;              /* toggled to flex by setGameplayVisible */
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px 7px 10px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  z-index: 6;
+}
+#health .heart {
+  font-size: 1.15rem;
+  color: #e8556a;
+  text-shadow: 0 0 8px rgba(232, 85, 106, 0.55);
+  line-height: 1;
+}
+#health .health-track {
+  width: 150px;
+  height: 9px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+}
+#health .health-track i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 5px;
+  background: hsl(115, 70%, 45%);
+  transition: width 0.25s ease, background 0.25s ease;
+}
+#health .health-num {
+  min-width: 2.2ch;
+  text-align: right;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--parchment);
+  opacity: 0.9;
+}
+#health.low .heart { animation: heart-throb 0.85s ease-in-out infinite; }
+@keyframes heart-throb {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%      { transform: scale(1.28); opacity: 0.7; }
+}
+
+/* ---- hotbar action hint (what F/click does to the selected item) ---- */
+#hotbar-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 108px;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: var(--parchment);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  white-space: nowrap;
+}
+#hotbar-hint.visible { opacity: 0.82; }

@@ -43,8 +43,11 @@ renderer.toneMappingExposure = 1.05;
 // candela-scale intensity) — old-style intensity values like 1-2 that used
 // to look fine now render as almost total darkness. These are tuned
 // empirically against real screenshots, not the old convention.
-scene.add(new THREE.AmbientLight(0x2a241c, 3.2));
-scene.add(new THREE.HemisphereLight(0x2a2418, 0x0a0806, 1.6));
+// Kept low on purpose: DOORS rooms read moody and dim, lit mostly by their
+// own lamps/flashlight rather than a bright global fill. (Still well above
+// the near-zero values that once rendered everything black.)
+scene.add(new THREE.AmbientLight(0x241f18, 2.0));
+scene.add(new THREE.HemisphereLight(0x241e15, 0x080606, 0.95));
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -55,7 +58,11 @@ window.addEventListener('resize', () => {
 initMaterials();
 Input.init(canvas);
 canvas.addEventListener('click', () => {
-  if (gameState === 'playing' && !Input.locked && !hud.modalOpen) Input.requestLock();
+  if (gameState !== 'playing' || hud.modalOpen) return;
+  // click re-grabs the pointer if it was released; once locked, a click is a
+  // second "use the selected item" input alongside F (matching the controls hint)
+  if (!Input.locked) { Input.requestLock(); return; }
+  inventory.useSelected();
 });
 
 // ---------------------------------------------------------------------

@@ -91,7 +91,7 @@ export class World {
     let opts;
     if (number === CFG.room.finalRoom) {
       opts = { number, length: 30, exit: 'none', isElevator: true };
-    } else if (number === CFG.room.shopRoom) {
+    } else if (CFG.room.shopRooms.includes(number)) {
       opts = { number, length: 44, exit: 'end', exitOffset: 0, isShop: true };
     } else if (number === CFG.room.libraryRoom) {
       opts = { number, length: 80, exit: 'end', exitOffset: 0, isLibrary: true };
@@ -129,7 +129,7 @@ export class World {
     }
 
     const lockable = number >= CFG.room.lockedMinRoom
-      && number + 1 !== CFG.room.shopRoom
+      && !CFG.room.shopRooms.includes(number + 1)
       && number + 1 !== CFG.room.libraryRoom
       && number + 1 !== CFG.room.finalRoom;
     const locked = lockable && chance(CFG.room.lockedChance);

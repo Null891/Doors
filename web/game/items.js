@@ -42,6 +42,18 @@ const ICON = {
 // never runs out, and any lit light source discourages Screech.
 const CANDLE_INTENSITY = 85;
 
+// short action verb per item, used in purchase toasts and the hotbar hint so
+// the player always knows what F/click will do with the selected item.
+const USE_VERB = {
+  Flashlight: 'toggle the light',
+  Candle: 'light it',
+  Vitamins: 'drink for a speed burst',
+  Bandage: 'heal',
+  Battery: 'recharge the flashlight',
+  Crucifix: 'ready it (auto-banishes on contact)',
+  Starlight: 'ready it (revives you once)',
+};
+
 // Physically-correct light falloff needs candela-scale intensity, not the
 // old ~1-3 convention (see rooms.js's LAMP_BASE_INT for the same fix).
 const FLASH_ON_INTENSITY = 320;
@@ -185,7 +197,10 @@ export class Inventory {
     return this.slots.findIndex((s) => s === null);
   }
 
-  // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick' | 'Bandage' | 'Battery'
+  // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick' | 'Bandage'
+  //     | 'Battery' | 'Candle' | 'Starlight'
+  // Auto-selects the slot the item lands in, so the player can immediately
+  // press F / click to use it without hunting for the right number key.
   giveItem(name) {
     // Lockpick is a charge counter, never a hotbar slot.
     if (name === 'Lockpick') { this.addLockpick(1); return; }
@@ -195,31 +210,33 @@ export class Inventory {
     if (name === 'Flashlight') {
       const i = this._findSlot('Flashlight');
       this.flashlightBattery = CFG.items.flashlightBattery;
-      if (i >= 0) {
-        this.slots[i].meter = 1;
-        return;
-      }
+      if (i >= 0) { this.slots[i].meter = 1; this.selected = i; return; }
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
       this.slots[empty] = { name, icon: ICON.Flashlight, count: 1, meter: 1 };
+      this.selected = empty;
       return;
     }
 
     // Candle: a single carried toggle light — no duplicates, no battery.
     if (name === 'Candle') {
-      if (this._findSlot('Candle') >= 0) return;
+      const found = this._findSlot('Candle');
+      if (found >= 0) { this.selected = found; return; }
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
       this.slots[empty] = { name, icon: ICON.Candle, count: 1, meter: null };
+      this.selected = empty;
       return;
     }
 
     // Crucifix / Starlight: single carried, single-use — no duplicates.
     if (name === 'Crucifix' || name === 'Starlight') {
-      if (this._findSlot(name) >= 0) return; // already carrying one
+      const found = this._findSlot(name);
+      if (found >= 0) { this.selected = found; return; }
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
       this.slots[empty] = { name, icon: ICON[name], count: 1, meter: null };
+      this.selected = empty;
       return;
     }
 
@@ -227,10 +244,11 @@ export class Inventory {
     // if already held, used later via useSelected().
     if (name === 'Vitamins' || name === 'Bandage' || name === 'Battery') {
       const i = this._findSlot(name);
-      if (i >= 0) { this.slots[i].count++; return; }
+      if (i >= 0) { this.slots[i].count++; this.selected = i; return; }
       const empty = this._firstEmpty();
       if (empty < 0) { this.hud.toast('Hotbar full.', '#c33'); return; }
       this.slots[empty] = { name, icon: ICON[name], count: 1, meter: null };
+      this.selected = empty;
       return;
     }
   }
@@ -495,7 +513,8 @@ export class Inventory {
           }
           this.giveItem(displayName);
           this.sfx.purchase();
-          this.hud.toast(`Bought ${displayName}!`, '#7ed07e');
+          const slotN = this.selected + 1;
+          this.hud.toast(`Bought ${displayName}! → slot ${slotN}. Press F (or click) to ${USE_VERB[displayName] || 'use'}.`, '#7ed07e');
         },
       });
     });

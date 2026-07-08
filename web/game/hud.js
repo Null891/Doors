@@ -107,6 +107,17 @@ export class Hud {
       count.style.display = 'none';
       this.slotEls.push({ root: s, icon, meter, fill, count });
     }
+    // persistent reminder of what the selected item does — the piece that was
+    // missing when players couldn't tell how to use what they bought.
+    this.hotbarHint = el('div', { id: 'hotbar-hint' }, r);
+
+    // health bar — bottom-left, always visible in play. A heart pip + a
+    // fill that shifts green→amber→red as it drops, plus a numeric readout.
+    this.healthEl = el('div', { id: 'health' }, r);
+    el('span', { cls: 'heart', text: '♥' }, this.healthEl);
+    const healthTrack = el('div', { cls: 'health-track' }, this.healthEl);
+    this.healthFill = el('i', {}, healthTrack);
+    this.healthNum = el('span', { cls: 'health-num', text: '100' }, this.healthEl);
 
     // stamina bar — sits just above the hotbar, hidden while full and fading
     // in only while sprinting drains it (driven by setStamina()).
@@ -450,9 +461,15 @@ export class Hud {
   }
 
   setHealth(frac) {
-    const f = Math.max(0, frac);
+    const f = Math.max(0, Math.min(1, frac));
     this.hurt.style.opacity = String((1 - f) * 0.9);
     this.hurt.classList.toggle('critical', f > 0 && f < 0.3);
+    // bar: width + colour ramp green→amber→red, numeric readout, low pulse
+    this.healthFill.style.width = `${f * 100}%`;
+    const hue = f * 115; // 0 = red, 115 = green
+    this.healthFill.style.background = `hsl(${hue}, 70%, 45%)`;
+    this.healthNum.textContent = String(Math.round(f * 100));
+    this.healthEl.classList.toggle('low', f > 0 && f < 0.3);
   }
 
   // stamina bar: visible only while not full, so it never clutters the HUD
@@ -540,6 +557,10 @@ export class Hud {
         s.root.classList.remove('low-battery');
       }
     }
+
+    const sel = slots[selected];
+    this.hotbarHint.textContent = sel ? `${sel.name.toUpperCase()} — press F or click to use` : '';
+    this.hotbarHint.classList.toggle('visible', !!sel);
   }
 
   // ---- jumpscare face ----------------------------------------------
@@ -756,6 +777,7 @@ export class Hud {
     this.roomLabel.style.display = d;
     this.currency.style.display = d;
     this.crosshair.style.display = d;
+    this.healthEl.style.display = v ? 'flex' : 'none';
     this.hotbarEl.style.display = v ? 'flex' : 'none';
     if (!v) {
       this.prompt(null);

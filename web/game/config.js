@@ -15,7 +15,8 @@ export const CFG = {
     darkChance: 0.09,    // random unlit rooms (Screech territory)
     darkMinRoom: 9,
     greenhouseStart: 90, // 90..99 always dark
-    shopRoom: 52,
+    shopRooms: [22, 52, 78], // Jeff's Shop appears three times so gold is
+                             // spendable early / mid / late, not just once
     libraryRoom: 50,
     finalRoom: 100,
     goldChance: 0.6,
@@ -151,6 +152,6 @@ export const CFG = {
 
   guidingLightDelay: 40, // seconds stuck in a locked room before the key glows
 
-  fogNormal: 90,
-  fogDark: 55,
+  fogNormal: 78,
+  fogDark: 46,
 };
