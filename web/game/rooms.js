@@ -176,7 +176,8 @@ export function setRoomLightsOn(room, on) {
   for (const lamp of room.lights) {
     if (lamp.broken) continue;
     lamp.mesh.material = on ? Mats.bulbOn : Mats.bulbOff;
-    lamp.light.intensity = on ? LAMP_BASE_INT : 0;
+    // "off" for a dark-room lamp is its faint gloom floor, not full black
+    lamp.light.intensity = on ? LAMP_BASE_INT : (lamp.dimInt || 0);
   }
 }
 
@@ -188,11 +189,17 @@ function makeLamp(b, group, frame, localX, localZ, H, dark) {
   mesh.position.set(p.x, y, p.z);
   b.geos.push(geo);
   group.add(mesh);
-  const light = new THREE.PointLight(0xffd6a0, dark ? 0 : LAMP_BASE_INT, 34, 1.4);
+  // Dark rooms keep a faint COOL gloom instead of going pitch black — enough
+  // to navigate and read shapes (the real game is dim here, not blind), while
+  // still clearly "the lights are dead." Truly-black moments are reserved for
+  // transient events (Rush shattering the bulbs). The dim value is remembered
+  // so setRoomLightsOn() can restore to it rather than 0.
+  const darkInt = LAMP_BASE_INT * 0.24;
+  const light = new THREE.PointLight(dark ? 0x6d79b0 : 0xffd6a0, dark ? darkInt : LAMP_BASE_INT, dark ? 46 : 34, 1.4);
   light.castShadow = false;
   light.position.set(p.x, y - 0.3, p.z);
   group.add(light);
-  return { mesh, light, broken: false };
+  return { mesh, light, broken: false, dark, dimInt: dark ? darkInt : 0 };
 }
 
 // ---- hinged doors (shared swing-animation helpers) ----------------------
@@ -867,6 +874,14 @@ export function buildRoom(frame, opts) {
     b.trackMat(frameMat);
     const doorMat = Mats.metal(0.6, 2.4);
     b.trackMat(doorMat);
+
+    // Solid back wall sealing the start room — the lobby has no room behind
+    // it, so without this the player walks straight out past the elevator
+    // into the void. Full width + collider; the elevator set piece sits in
+    // front of it.
+    const bwZ = -1.3;
+    b.box(0, bwZ, W + 1, WALL_T, H / 2, H, wallMat);
+    room.colliders.push(footprintAabb(frame, -W / 2, W / 2, bwZ - WALL_T / 2, bwZ + WALL_T / 2, 0, H));
 
     b.box(0, elevZ, 9, 0.6, H / 2, H, frameMat); // alcove frame, spans the back
     b.box(-2.05, elevZ + 0.2, 3.9, 0.3, 4.5, 9, doorMat); // left door leaf
