@@ -397,6 +397,44 @@ class SfxEngine {
     return this._loopHandle([o1, o2], g);
   }
 
+  // Heartbeat: a lub-dub pair whose rate and weight rise with setLevel(0..1).
+  // Level 0 is fully silent (no scheduling), so it can idle for a whole run.
+  // Returns { setLevel, stop }; main.js drives it from danger/low-health.
+  heartbeat() {
+    if (!this.ctx) return { setLevel: () => {}, stop: () => {} };
+    let level = 0;
+    let stopped = false;
+    let next = this.now + 0.1;
+    const thump = (t, vol, freq) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g);
+      g.connect(this.master);
+      o.start(t);
+      o.stop(t + 0.22);
+    };
+    const timer = setInterval(() => {
+      if (stopped) return;
+      if (level <= 0.03) { next = Math.max(next, this.now + 0.1); return; }
+      const period = 1.15 - level * 0.55; // calm ~52bpm up to ~100bpm
+      while (next < this.now + 0.35) {
+        const v = 0.11 * level;
+        thump(next, v, 54);                              // lub
+        thump(next + 0.26 - level * 0.07, v * 0.65, 42); // dub
+        next += period;
+      }
+    }, 120);
+    return {
+      setLevel: (l) => { level = Math.max(0, Math.min(1, l)); },
+      stop: () => { stopped = true; clearInterval(timer); },
+    };
+  }
+
   rumbleLoop() {
     if (!this.ctx) return null;
     const g = this.ctx.createGain();

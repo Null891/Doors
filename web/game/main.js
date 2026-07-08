@@ -77,6 +77,7 @@ flashLight.target.position.set(0, 0, -1);
 camera.add(flashLight.target);
 
 let ambienceHandle = null;
+let heartbeatHandle = null;
 let shakeAmp = 0;
 function shake(amount) { shakeAmp = Math.max(shakeAmp, amount); }
 
@@ -284,9 +285,20 @@ function pullLever() {
   Input.exitLock();
   Sfx.leverPull();
   director.onInteractionNoise({ x: player.pos.x, z: player.pos.z });
-  const { knobs, gold } = endRunPayout(CFG.economy.winBonus);
-  Sfx.winTune();
-  hud.showWin({ knobs, gold });
+  // elevator ride beat: doors slam, the screen sinks to black under a rising
+  // shake, and only then the stats screen fades in — instead of the stats
+  // popping the same frame the lever moves.
+  hud.caption('The elevator shudders to life...');
+  setTimeout(() => Sfx.doorSlam(0.9), 600);
+  hud.fadeTo(1, 1.9);
+  shake(0.8);
+  setTimeout(() => {
+    hud.caption('');
+    const { knobs, gold } = endRunPayout(CFG.economy.winBonus);
+    Sfx.winTune();
+    hud.showWin({ knobs, gold });
+    hud.fadeTo(0, 1.0);
+  }, 2100);
 }
 
 // ---------------------------------------------------------------------
@@ -424,6 +436,7 @@ hud.on.play = () => {
   Sfx.init();
   Sfx.resume();
   if (!ambienceHandle) ambienceHandle = Sfx.ambience();
+  if (!heartbeatHandle) heartbeatHandle = Sfx.heartbeat();
   // brief intro beat: the loading veil masks the world rebuild, then lifts.
   // hideScreens() first: the veil is pointer-events:none, so without it the
   // still-visible menu button could be double-clicked into two startRun()s.
@@ -622,6 +635,12 @@ function frame() {
     const hunted = director.sweeper.active || director.seek.active || director.halt.active;
     ambienceHandle?.setTension?.(inDanger || hunted ? 1 : 0);
     hud.setDanger(hunted ? 1 : (inDanger ? 0.35 : 0));
+    const hpFrac = player.health / CFG.player.health;
+    heartbeatHandle?.setLevel(Math.max(
+      hunted ? 0.85 : 0,
+      inDanger ? 0.3 : 0,
+      hpFrac < 0.3 ? 0.65 : 0,
+    ));
 
     hud.setGold(inventory.gold);
     hud.setKnobs(inventory.knobs);
@@ -639,6 +658,8 @@ function frame() {
       camera.updateProjectionMatrix();
     }
   }
+
+  if (gameState !== 'playing') heartbeatHandle?.setLevel(0);
 
   Input.endFrame();
   renderer.render(scene, camera);
