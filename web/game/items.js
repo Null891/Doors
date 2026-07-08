@@ -197,6 +197,22 @@ export class Inventory {
     return this.slots.findIndex((s) => s === null);
   }
 
+  // Whether giveItem(name) would actually take effect right now — the shop
+  // checks this before charging so you never pay for nothing.
+  canAccept(name) {
+    if (name === 'Lockpick') return true;
+    // Flashlight always accepts (a repeat pickup just refills the battery).
+    if (name === 'Flashlight') return true;
+    // Stackable consumables: fine if already held (stacks) or a slot is free.
+    if (name === 'Vitamins' || name === 'Bandage' || name === 'Battery') {
+      return this._findSlot(name) >= 0 || this._firstEmpty() >= 0;
+    }
+    // Single-carry items (Candle, Crucifix, Starlight): only if not already
+    // held and there's an open slot.
+    if (this._findSlot(name) >= 0) return false;
+    return this._firstEmpty() >= 0;
+  }
+
   // name: 'Flashlight' | 'Vitamins' | 'Crucifix' | 'Lockpick' | 'Bandage'
   //     | 'Battery' | 'Candle' | 'Starlight'
   // Auto-selects the slot the item lands in, so the player can immediately
@@ -505,6 +521,14 @@ export class Inventory {
         range: 4,
         getLabel: (_ctx) => `Buy ${displayName} (${price} ${currencyLabel})`,
         interact: (_ctx) => {
+          // Check acceptance BEFORE taking payment — otherwise a full hotbar
+          // or a duplicate single-carry item charges you and gives nothing.
+          if (!this.canAccept(displayName)) {
+            const held = this._findSlot(displayName) >= 0;
+            this.hud.toast(held ? `You already have a ${displayName}.` : 'Hotbar full — use something first.', '#c33');
+            this.sfx.error();
+            return;
+          }
           const paid = isShop ? this.spendGold(price) : this.spendKnobs(price);
           if (!paid) {
             this.hud.toast(`Not enough ${currencyLabel}.`, '#c33');
